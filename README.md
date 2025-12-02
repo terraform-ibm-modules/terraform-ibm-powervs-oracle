@@ -1,12 +1,12 @@
 <!-- Update this title with a descriptive name. Use sentence case. -->
-# Terraform modules template project
+# PowerVS Private Automation for Oracle Database
 
 <!--
 Update status and "latest release" badges:
   1. For the status options, see https://terraform-ibm-modules.github.io/documentation/#/badge-status
   2. Update the "latest release" badge to point to the correct module's repo. Replace "terraform-ibm-module-template" in two places.
 -->
-[![Incubating (Not yet consumable)](https://img.shields.io/badge/status-Incubating%20(Not%20yet%20consumable)-red)](https://terraform-ibm-modules.github.io/documentation/#/badge-status)
+[![Graduated (Supported)](https://img.shields.io/badge/status-Graduated%20(Supported)-brightgreen?style=plastic)](https://terraform-ibm-modules.github.io/documentation/#/badge-status)
 [![latest release](https://img.shields.io/github/v/release/terraform-ibm-modules/terraform-ibm-powervs-oracle?logo=GitHub&sort=semver)](https://github.com/terraform-ibm-modules/terraform-ibm-powervs-oracle/releases/latest)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
 [![Renovate enabled](https://img.shields.io/badge/renovate-enabled-brightgreen.svg)](https://renovatebot.com/)
@@ -20,134 +20,108 @@ For information, see "Module names and descriptions" at
 https://terraform-ibm-modules.github.io/documentation/#/implementation-guidelines?id=module-names-and-descriptions
 -->
 
-TODO: Replace this with a description of the modules in this repo.
+This module creates a Oracle Single Instance 19c Database on IBM PowerVS Private AIX VSI.
 
-
-<!-- The following content is automatically populated by the pre-commit hook -->
-<!-- BEGIN OVERVIEW HOOK -->
 ## Overview
-* [terraform-ibm-powervs-oracle](#terraform-ibm-powervs-oracle)
-* [Examples](./examples)
-    * <div style="display: inline-block;"><a href="./examples/advanced">Advanced example</a></div> <div style="display: inline-block; vertical-align: middle;"><a href="https://cloud.ibm.com/schematics/workspaces/create?workspace_name=po-advanced-example&repository=https://github.com/terraform-ibm-modules/terraform-ibm-powervs-oracle/tree/main/examples/advanced" target="_blank"><img src="https://cloud.ibm.com/media/docs/images/icons/Deploy_to_cloud.svg" alt="Deploy to IBM Cloud button"></a></div>
-    * <div style="display: inline-block;"><a href="./examples/basic">Basic example</a></div> <div style="display: inline-block; vertical-align: middle;"><a href="https://cloud.ibm.com/schematics/workspaces/create?workspace_name=po-basic-example&repository=https://github.com/terraform-ibm-modules/terraform-ibm-powervs-oracle/tree/main/examples/basic" target="_blank"><img src="https://cloud.ibm.com/media/docs/images/icons/Deploy_to_cloud.svg" alt="Deploy to IBM Cloud button"></a></div>
-* [Contributing](#contributing)
-<!-- END OVERVIEW HOOK -->
+This automated deployable architecture guide demonstrates the components used to deploy Oracle Single Instance 19c Database on IBM PowerVS Private. First it creates the infrastructure and next it creates the database. The Oracle Database can be either created on Automatic Storage Management (ASM) or on Journal File System (JFS2). 
+
+## Reference Architecture
+
+<img width="342" alt="image" src="https://raw.githubusercontent.com/nava-dba/terraform-ibm-powervs-oracle/8175f85efce7c094907daa5ecfe13f7e8e598a38/images/Oracle_Private_DA_SI.svg" />
+
+Using terraform, RHEL & AIX vms will be created. The RHEL vm will act as Ansible controller which contains the playbooks required to setup Oracle Database on AIX. The RHEL vm is also configured with NFS server for staging the Oracle binaries.
+
+## Planning
+### Before you begin deploying
+
+**Step A**: IAM Permissions
+- IAM access roles are required to install this deployable architecture and create all the required elements.
+  You need the following permissions for this deployable architecture:
+1. Create services from IBM Cloud catalog.
+2. Create and modify Power® Virtual Server services, virtual server instances, networks, storage volumes, ssh keys of this Power® Virtual Server.
+3. Access existing Object Storage services.
+4. The Editor role on the Projects service.
+5. The Editor and Manager role on the Schematics service.
+6. The Viewer role on the resource group for the project.
+   
+- For information about configuring permissions, contact your IBM Cloud account administrator.
+
+**Step B**: Generate API key
+- Refer to the [IBM Cloud documentation](https://www.ibm.com/docs/en/masv-and-l/cd?topic=cli-creating-your-cloud-api-key)
+
+**Step C**: Create Power Virtual Server Workspace and get guid.
+1. To create an IBM Power® Virtual Server workspace, complete step 1 to step 8 from the IBM Cloud® documentation for [Creating an IBM Power® Virtual Server](https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-creating-power-virtual-server)
+2. Click on Menu --> “Resource List” --> Expand “Compute” --> Click on the blue circle dot on the left side of the workspace and copy the GUID
+3. GUID can also be obtained from CRN of the workspace.
+
+For example: This is the CRN:
+
+> crn:v1:bluemix:public:power-iaas:dal14:a12hkf7gtug9f945688c021cd0n5f45c4d:**6284g5a2-4771-4b3b-g20h-278bb2b7651e**::
+
+> The corresponding GUID is **6284g5a2-4771-4b3b-g20h-278bb2b7651e**
+
+**Step D**: Create Private Subnet in PowerVS Workspace
+1. Go to the workspace that was created in Step 3
+2. Click Subnets in the left navigation menu, then Add subnet.
+3. Enter a name for the subnet, CIDR value (for example: 192.168.100.14/24), gateway number (for example: 192.168.100.15), and the IP range values for the subnet.
+4. Click Create Subnet.
+
+For more information, please refer to [IBM Cloud Documentation](https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-configuring-subnet)
+
+**Step E**: Create VM with external connectivity 
+- Contact IBM Support, IBM SRE will help in creating a VPN gateway for external connectivity. This will act as bastion host. 
+For more information, please refer to [IBM Cloud Documentation](https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-private-cloud-architecture#network-spec-private-cloud)
+
+**Step F**: Configure Squid Server on the bastion host for proxy service.
+Please refer to [IBM Cloud Documentation](https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-full-linux-sub#create-proxy-private)
+
+**Step G**: Get ssh-key pair from bastion host
+1. Generate ssh key pair on the bastion host and add the public key into the bastion host’s authorized keys.
+> ssh-keygen -t rsa
+
+> cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
+
+> cat ~/.ssh/id_rsa   # Note down the private key, this must be given as a DA input.
+  Note: If you are using pre-existing keys then make sure private and public ssh key pair are placed in bastion host at ~/.ssh/
+2. Similarly, add the public key of the bastion host to the PowerVS Workspace.
+For more information, please refer to [IBM Cloud Documentation](https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-creating-ssh-key)
+
+**Step H**: Download Oracle Binaries and upload to COS bucket
+1. Create COS instance
+2. Generate COS service credentials
+3. Create COS bucket
+4. Download Oracle Binaries from [Oracle Site](https://www.oracle.com/database/technologies/oracle19c-aix-193000-downloads.html). They should be uploaded to IBM Cloud COS bucket and note down the COS Service Credentials. The following files must be downloaded. 
+   - RDBMS software: AIX.PPC64_193000_db_home.zip
+   - Grid Infrastructure software: AIX.PPC64_193000_grid_home.zip
+   - Download the latest Release Update patch for AIX from MOS. Refer to this [Oracle documentation](https://docs.oracle.com/en/database/oracle/oracle-database/19/ntdbi/downloading-and-installing-patch-updates.html) to get the patches.
+Please refer to the following links related to Cloud Object Storage
+   - [Getting started with Cloud Object Storage](https://cloud.ibm.com/docs/cloud-object-storage?topic=cloud-object-storage-getting-started-cloud-object-storage)
+   - [COS Service Credentials](https://cloud.ibm.com/docs/cloud-object-storage?topic=cloud-object-storage-service-credentials)
+   - [Upload data to COS Bucket](https://cloud.ibm.com/docs/cloud-object-storage?topic=cloud-object-storage-upload)
 
 
-<!-- Replace this heading with the name of the root level module (the repo name) -->
-## terraform-ibm-powervs-oracle
+**Step I**: Full Linux Subscription Implementation
+- DA need FLS setup which is required for RHEL Subscription. This release of DA we will be using only IBM provided subscription images, refer to [FLS Documentation](https://www.ibm.com/docs/en/power-virtual-server?topic=linux-full-subscription-power-virtual-server-private-cloud)
 
-### Usage
+**Step J**: Whitelist schematic CIDR/IP
+- At VPN Gateway level, whitelist the schematic CIDRs/IPs of region where schematic workspace gets created, refer to [Firewall Access – allowed IP addresses](https://cloud.ibm.com/docs/schematics?topic=schematics-allowed-ipaddresses)
 
-<!--
-Add an example of the use of the module in the following code block.
+## Deploying
+### Deploy using projects
+1. Go to the catalog community registry and search for powervs_oracle_da
+2. Next, we will deploy the DA using the IBM Cloud projects.
+Refer to this link for more information about [Projects](https://cloud.ibm.com/docs/secure-enterprise?topic=secure-enterprise-understanding-projects)
+3. Click on the tile for the deployable architecture
+4. Select and Review the deployment options
+5. Select the Add to project deployment type in Deployment options, and then click Add to project
+6. Name your project, enter a description, and specify a configuration name. Click Create.
+7. Edit and validate the configuration:
+   1.	Enter values for required input fields
+   2.	Review and update the optional inputs if needed
+   3.	Save the configuration
+   4.	Click Validate, validation takes a few minutes
+   5.	Click Deploy (Deploying the deployable architecture can take more than 2 hours. You are notified when the deployment is successful)
+   6.	Review the outputs from the deployable architecture
 
-Use real values instead of "var.<var_name>" or other placeholder values
-unless real values don't help users know what to change.
--->
-
-```hcl
-terraform {
-  required_version = ">= 1.9.0"
-  required_providers {
-    ibm = {
-      source  = "IBM-Cloud/ibm"
-      version = "X.Y.Z"  # Lock into a provider version that satisfies the module constraints
-    }
-  }
-}
-
-locals {
-    region = "us-south"
-}
-
-provider "ibm" {
-  ibmcloud_api_key = "XXXXXXXXXX"  # replace with apikey value
-  region           = local.region
-}
-
-module "module_template" {
-  source            = "terraform-ibm-modules/<replace>/ibm"
-  version           = "X.Y.Z" # Replace "X.Y.Z" with a release version to lock into a specific release
-  region            = local.region
-  name              = "instance-name"
-  resource_group_id = "xxXXxxXXxXxXXXXxxXxxxXXXXxXXXXX" # Replace with the actual ID of resource group to use
-}
-```
-
-### Required access policies
-
-<!-- PERMISSIONS REQUIRED TO RUN MODULE
-If this module requires permissions, uncomment the following block and update
-the sample permissions, following the format.
-Replace the 'Sample IBM Cloud' service and roles with applicable values.
-The required information can usually be found in the services official
-IBM Cloud documentation.
-To view all available service permissions, you can go in the
-console at Manage > Access (IAM) > Access groups and click into an existing group
-(or create a new one) and in the 'Access' tab click 'Assign access'.
--->
-
-<!--
-You need the following permissions to run this module:
-
-- Service
-    - **Resource group only**
-        - `Viewer` access on the specific resource group
-    - **Sample IBM Cloud** service
-        - `Editor` platform access
-        - `Manager` service access
--->
-
-<!-- NO PERMISSIONS FOR MODULE
-If no permissions are required for the module, uncomment the following
-statement instead the previous block.
--->
-
-<!-- No permissions are needed to run this module.-->
-
-
-<!-- The following content is automatically populated by the pre-commit hook -->
-<!-- BEGINNING OF PRE-COMMIT-TERRAFORM DOCS HOOK -->
-### Requirements
-
-| Name | Version |
-|------|---------|
-| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.9.0 |
-| <a name="requirement_ibm"></a> [ibm](#requirement\_ibm) | >= 1.71.2, < 2.0.0 |
-
-### Modules
-
-No modules.
-
-### Resources
-
-| Name | Type |
-|------|------|
-| [ibm_resource_instance.cos_instance](https://registry.terraform.io/providers/IBM-Cloud/ibm/latest/docs/resources/resource_instance) | resource |
-
-### Inputs
-
-| Name | Description | Type | Default | Required |
-|------|-------------|------|---------|:--------:|
-| <a name="input_name"></a> [name](#input\_name) | A descriptive name used to identify the resource instance. | `string` | n/a | yes |
-| <a name="input_plan"></a> [plan](#input\_plan) | The name of the plan type supported by service. | `string` | `"standard"` | no |
-| <a name="input_resource_group_id"></a> [resource\_group\_id](#input\_resource\_group\_id) | The ID of the resource group where you want to create the service. | `string` | n/a | yes |
-| <a name="input_resource_tags"></a> [resource\_tags](#input\_resource\_tags) | List of resource tag to associate with the instance. | `list(string)` | `[]` | no |
-
-### Outputs
-
-| Name | Description |
-|------|-------------|
-| <a name="output_account_id"></a> [account\_id](#output\_account\_id) | An alpha-numeric value identifying the account ID. |
-| <a name="output_crn"></a> [crn](#output\_crn) | The CRN of the resource instance. |
-| <a name="output_guid"></a> [guid](#output\_guid) | The GUID of the resource instance. |
-| <a name="output_id"></a> [id](#output\_id) | The unique identifier of the resource instance. |
-<!-- END OF PRE-COMMIT-TERRAFORM DOCS HOOK -->
-
-<!-- Leave this section as is so that your module has a link to local development environment set-up steps for contributors to follow -->
-## Contributing
-
-You can report issues and request features for this module in GitHub issues in the module repo. See [Report an issue or request a feature](https://github.com/terraform-ibm-modules/.github/blob/main/.github/SUPPORT.md).
-
-To set up your local development environment, see [Local development setup](https://terraform-ibm-modules.github.io/documentation/#/local-dev-setup) in the project documentation.
+## Help and Support
+You can report issues and request features for this module in GitHub issues in the [repository link](https://github.com/terraform-ibm-modules/.github/blob/main/.github/SUPPORT.md) 
