@@ -161,8 +161,7 @@
             },
             {
               "key": "pi_networks",
-              "label": "PowerVS Networks",
-              "type": "code_editor",
+              "required": true,
               "custom_config": {
                 "type": "code_editor",
                 "grouping": "deployment",
@@ -173,8 +172,7 @@
                   ]
                 }
               },
-              "required": true,
-              "default_value": "[]"
+              "default_value": "pi_networks = [{ name = \"ora-subnet\", id = \"asdg876a-f62i-12ha-abcd-89h08a7sd90d\" }]"
             },
             {
               "key": "pi_rhel_management_server_type",
@@ -445,18 +443,6 @@
                 "count": "4",
                 "tier": "tier1"
               }
-            },
-            {
-              "key": "pi_boot_volume",
-              "required": false,
-              "type": "string",
-              "default_value": ""
-            },
-            {
-              "key": "pi_crsdg_volume",
-              "required": false,
-              "type": "string",
-              "default_value": ""
             },
             {
               "key": "pi_user_tags",

@@ -11,6 +11,20 @@
 
 locals {
   nfs_mount = "/repos"
+
+  pi_boot_volume = {
+    "name" : "rootvg",
+    "size" : "40",
+    "count" : "1",
+    "tier" : "tier1"
+  }
+
+  pi_crsdg_volume = {
+    "name" : "CRSDG",
+    "size" : "8",
+    "count" : "4",
+    "tier" : "tier1"
+  }
 }
 
 module "pi_instance_rhel" {
@@ -55,8 +69,8 @@ module "pi_instance_aix" {
   pi_user_tags               = var.pi_user_tags
   pi_storage_config = (
     var.oracle_install_type == "ASM" ?
-    [var.pi_boot_volume, var.pi_oravg_volume, var.pi_crsdg_volume, var.pi_data_volume, var.pi_redo_volume] :
-    [var.pi_boot_volume, var.pi_oravg_volume, var.pi_datavg_volume]
+    [local.pi_boot_volume, var.pi_oravg_volume, local.pi_crsdg_volume, var.pi_data_volume, var.pi_redo_volume] :
+    [local.pi_boot_volume, var.pi_oravg_volume, var.pi_datavg_volume]
   )
 
 }
