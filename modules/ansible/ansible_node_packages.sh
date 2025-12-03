@@ -160,7 +160,7 @@ main::run_cloud_init() {
   if [ -s "$FILE_NAME" ]; then
     echo "File '$FILE_NAME' exists and has a size greater than zero."
     echo -e "$(subscription-manager status)"
-    cloud_init_cmd=`grep '\-t RHEL' $FILE_NAME`
+    cloud_init_cmd=$(grep '\-t RHEL' "$FILE_NAME")
     cloud_init_cmd_new=${cloud_init_cmd//Private.proxy.IP.address/$squid_ip}
     $cloud_init_cmd_new
     PID=$!
