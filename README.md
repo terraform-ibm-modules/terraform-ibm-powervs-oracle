@@ -44,13 +44,13 @@ Using terraform, RHEL & AIX vms will be created. The RHEL vm will act as Ansible
 5. The Editor and Manager role on the Schematics service.
 6. The Viewer role on the resource group for the project.
    
-- For information about configuring permissions, contact your IBM Cloud account administrator.
+- For information about configuring permissions, contact your account administrator.
 
 **Step B**: Generate API key
-- Refer to the [IBM Cloud documentation](https://www.ibm.com/docs/en/masv-and-l/cd?topic=cli-creating-your-cloud-api-key)
+- Refer to the [IBM Documentation](https://www.ibm.com/docs/en/masv-and-l/cd?topic=cli-creating-your-cloud-api-key)
 
 **Step C**: Create Power Virtual Server Workspace and get guid.
-1. To create an IBM Power® Virtual Server workspace, complete step 1 to step 8 from the IBM Cloud® documentation for [Creating an IBM Power® Virtual Server](https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-creating-power-virtual-server)
+1. To create an IBM Power® Virtual Server workspace, complete step 1 to step 8 from the IBM PowerVS documentation for [Creating an IBM Power® Virtual Server](https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-creating-power-virtual-server)
 2. Click on Menu --> “Resource List” --> Expand “Compute” --> Click on the blue circle dot on the left side of the workspace and copy the GUID
 3. GUID can also be obtained from CRN of the workspace.
 
@@ -66,14 +66,14 @@ For example: This is the CRN:
 3. Enter a name for the subnet, CIDR value (for example: 192.168.100.14/24), gateway number (for example: 192.168.100.15), and the IP range values for the subnet.
 4. Click Create Subnet.
 
-For more information, please refer to [IBM Cloud Documentation](https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-configuring-subnet)
+For more information, please refer to [IBM PowerVS Documentation](https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-configuring-subnet)
 
 **Step E**: Create VM with external connectivity 
 - Contact IBM Support, IBM SRE will help in creating a VPN gateway for external connectivity. This will act as bastion host. 
-For more information, please refer to [IBM Cloud Documentation](https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-private-cloud-architecture#network-spec-private-cloud)
+For more information, please refer to [IBM PowerVS Documentation](https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-private-cloud-architecture#network-spec-private-cloud)
 
 **Step F**: Configure Squid Server on the bastion host for proxy service.
-Please refer to [IBM Cloud Documentation](https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-full-linux-sub#create-proxy-private)
+Please refer to [IBM PowerVS Documentation](https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-full-linux-sub#create-proxy-private)
 
 **Step G**: Get ssh-key pair from bastion host
 1. Generate ssh key pair on the bastion host and add the public key into the bastion host’s authorized keys.
@@ -84,7 +84,7 @@ Please refer to [IBM Cloud Documentation](https://cloud.ibm.com/docs/power-iaas?
 > cat ~/.ssh/id_rsa   # Note down the private key, this must be given as a DA input.
   Note: If you are using pre-existing keys then make sure private and public ssh key pair are placed in bastion host at ~/.ssh/
 2. Similarly, add the public key of the bastion host to the PowerVS Workspace.
-For more information, please refer to [IBM Cloud Documentation](https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-creating-ssh-key)
+For more information, please refer to [IBM PowerVS Documentation](https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-creating-ssh-key)
 
 **Step H**: Download Oracle Binaries and upload to COS bucket
 1. Create COS instance
