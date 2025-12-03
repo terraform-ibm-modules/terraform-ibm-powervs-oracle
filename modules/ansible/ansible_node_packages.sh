@@ -118,7 +118,7 @@ main::setup_proxy() {
     bashrc_file="/etc/bash.bashrc"
   else
     main::log_error "No global bashrc file found!"
-    # shellcheck disable=SC2317 # ignore 
+    # shellcheck disable=SC2317 # ignore
     return 1
   fi
 
