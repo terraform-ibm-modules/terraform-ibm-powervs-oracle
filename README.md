@@ -90,10 +90,10 @@ For more information, please refer to [IBM PowerVS Documentation](https://cloud.
 1. Create COS instance
 2. Generate COS service credentials
 3. Create COS bucket
-4. Download Oracle Binaries from [Oracle Site](https://www.oracle.com/database/technologies/oracle19c-aix-193000-downloads.html). They should be uploaded to IBM Cloud COS bucket and note down the COS Service Credentials. The following files must be downloaded.
-   - RDBMS software: AIX.PPC64_193000_db_home.zip
-   - Grid Infrastructure software: AIX.PPC64_193000_grid_home.zip
-   - Download the latest Release Update patch for AIX from MOS. Refer to this [Oracle documentation](https://docs.oracle.com/en/database/oracle/oracle-database/19/ntdbi/downloading-and-installing-patch-updates.html) to get the patches.
+4. Download Oracle Binaries from [Oracle Site](https://edelivery.oracle.com/osdc/faces/SoftwareDelivery) and Download Release Update(RU)system patch 19.X from [Oracle MOS](https://support.oracle.com). Upload them to IBM Cloud COS bucket and note down the COS Service Credentials. The following files must be downloaded.
+   - RDBMS Base software: V982583-01_193000_db.zip
+   - Grid Infrastructure software: V982588-01_193000_grid.zip
+   - Download the latest Release Update(RU) system patch 19.X containing both grid and rdbms RU patches for AIX from MOS. Refer to MOS note [2521164.1](https://support.oracle.com/epmos/faces/DocumentDisplay?parent=DOCUMENT&sourceId=2521164.1&id=2521164.1) and also Refer to this [Oracle documentation](https://docs.oracle.com/en/database/oracle/oracle-database/19/ntdbi/downloading-and-installing-patch-updates.html).
 Please refer to the following links related to Cloud Object Storage
    - [Getting started with Cloud Object Storage](https://cloud.ibm.com/docs/cloud-object-storage?topic=cloud-object-storage-getting-started-cloud-object-storage)
    - [COS Service Credentials](https://cloud.ibm.com/docs/cloud-object-storage?topic=cloud-object-storage-service-credentials)
@@ -108,10 +108,10 @@ Please refer to the following links related to Cloud Object Storage
 
 ## Deploying
 ### Deploy using projects
-1. Go to the catalog community registry and search for powervs_oracle_da
-2. Next, we will deploy the DA using the IBM Cloud projects.
+1. Go to the catalog and search for oracle. Under catalog community registry, select tile "Power Virtual Server - Private for Oracle".
+2. Click "Configure and deploy"
+3. Next, we will deploy the DA using the IBM Cloud projects.
 Refer to this link for more information about [Projects](https://cloud.ibm.com/docs/secure-enterprise?topic=secure-enterprise-understanding-projects)
-3. Click on the tile for the deployable architecture
 4. Select and Review the deployment options
 5. Select the Add to project deployment type in Deployment options, and then click Add to project
 6. Name your project, enter a description, and specify a configuration name. Click Create.
@@ -122,6 +122,8 @@ Refer to this link for more information about [Projects](https://cloud.ibm.com/d
    4.	Click Validate, validation takes a few minutes
    5.	Click Deploy (Deploying the deployable architecture can take more than 2 hours. You are notified when the deployment is successful)
    6.	Review the outputs from the deployable architecture
+
+After Deployment Oracle Single Instance 19.X Multipurpose non-CDB Database will get created on AIX. You can connect to AIX VM from VPN Gateway VM(VPC) or from gui console by resetting the root password.
 
 ## Help and Support
 You can report issues and request features for this module in GitHub issues in the [repository link](https://github.com/terraform-ibm-modules/.github/blob/main/.github/SUPPORT.md)
