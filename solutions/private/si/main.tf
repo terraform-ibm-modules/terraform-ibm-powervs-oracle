@@ -29,7 +29,7 @@ locals {
 
 module "pi_instance_rhel" {
   source  = "terraform-ibm-modules/powervs-instance/ibm"
-  version = "2.8.5"
+  version = "2.8.6"
 
   pi_workspace_guid       = var.pi_existing_workspace_guid
   pi_ssh_public_key_name  = var.pi_ssh_public_key_name
@@ -53,7 +53,7 @@ module "pi_instance_rhel" {
 # Create AIX VM for Oracle database
 module "pi_instance_aix" {
   source  = "terraform-ibm-modules/powervs-instance/ibm"
-  version = "2.8.5"
+  version = "2.8.6"
 
   pi_workspace_guid          = var.pi_existing_workspace_guid
   pi_ssh_public_key_name     = var.pi_ssh_public_key_name
