@@ -16,7 +16,6 @@ cat <<EOF > ansible.cfg
 host_key_checking = False
 # SSH connect timeout per attempt
 timeout = 60
-interpreter_python=/opt/freeware/bin/python3
 
 [ssh_connection]
 ssh_args = -o ForwardAgent=yes -o ControlPersist=30m -o ServerAliveInterval=45 -o ServerAliveCountMax=10
@@ -25,7 +24,7 @@ pipelining = True
 EOF
 
 # Export environment variables
-export ANSIBLE_CONFIG=/root/terraform_files/ansible.cfg
+export ANSIBLE_CONFIG=$(pwd)/ansible.cfg
 export ANSIBLE_LOG_PATH=$${ansible_log_path}/$${ansible_playbook_name}.$(date "+%Y.%m.%d-%H.%M.%S").log
 export ANSIBLE_PRIVATE_KEY_FILE=$${ansible_private_key_file}
 

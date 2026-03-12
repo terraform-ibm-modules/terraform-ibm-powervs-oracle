@@ -11,6 +11,7 @@
   collections:
     - ibm.power_aix_oracle
     - ibm.power_aix_oracle_dba
+    - ibm.power_aix
 
   vars:
     ####### Install GRID and DB
@@ -23,6 +24,12 @@
     ora_sid: "${ORA_SID}"
     oracle_install_type: "${ORACLE_INSTALL_TYPE}"
 
+    # Sizes from Terraform (user-provided, minus 1GB for VG overhead)
+    oravg_size: "${ORAVG_SIZE}"
+    data_size: "${DATA_SIZE}"
+    redo_size: "${REDO_SIZE}"
+    arch_size: "${ARCH_SIZE}"
+
     # Static variables
 
     # Multitenant params
@@ -31,7 +38,7 @@
     pdb_prefix: ""                                  # Provide Pluggable database name.
     num_pdbs: 0                                     # Number of pluggable databases.
     state: "present"
-    redolog_size_in_mb: 40
+    redolog_size_in_mb: "${REDOLOG_SIZE_IN_MB}"
 
     # Provide the ansible work directory on target system.
     work_dir: /tmp/ansible
@@ -90,7 +97,7 @@
 
     ora_sw_vg: oravg
     ora_sw_fs: "/u01"
-    ora_sw_fs_size: 199G
+    ora_sw_fs_size: "{{ oravg_size }}G"
 
     # Software staging: Binary staging location can be remote|local|nfs
     # remote : Ansible Controller location defined in oracledbaix19c & oraclegridaix19c
@@ -125,16 +132,46 @@
     asm_diskdiscoverystring: "{{asm_disk_loc_prefix}}hdisk*"
     asm_asmsnmp_password: "${ORA_DB_PASSWORD}"
 
-    # Provide the JFS path for the database files if ASM is NOT required. Make sure to set grid_asm_flag to false.
-    ora_data_vg: datavg
-    ora_data_fs: /oradata
-    ora_data_fs_size: 5G
-    ora_db_fs_list:
-      - { fs_name: "/datafiles", size: "8G" }
-      - { fs_name: "/controlfiles", size: "2G" }
-      - { fs_name: "/redologs", size: "4G", bs: 512  }
+    # JFS2 Configuration for data and redo — used only by the JFS2 install path.
+    jfs2_storage_config:
+      - vg_name: datavg
+        lv_name: datalv
+        fs_name: /oradatafiles
+        size_gb: "{{ data_size }}"
+        pp_size: 512              # MB per PP
+        strip_size: 2M
+        agblksize: 4096
+        mount_opts: "noatime"
+        permissions: "rw"
+        label: "DATA"
+        auto_mount: yes
 
-    # Provide the path where the Oracle RDBMS should be installed and the database details.
+      - vg_name: redovg
+        lv_name: redolv
+        fs_name: /oraredologs
+        size_gb: "{{ redo_size }}"
+        pp_size: 512
+        strip_size: 2M
+        agblksize: 512
+        mount_opts: "noatime"
+        permissions: "rw"
+        label: "REDO"
+        auto_mount: yes
+
+    # Archive JFS2 config —  applied for both install type .
+    arch_jfs2_config:
+      - vg_name: archvg
+        lv_name: archlv
+        fs_name: /oraarchlogs
+        size_gb: "{{ arch_size }}"
+        pp_size: 512
+        strip_size: 2M
+        agblksize: 512
+        mount_opts: "noatime"
+        permissions: "rw"
+        label: "ARCH"
+        auto_mount: yes
+
     databases:
       - ora_home: "{{ora_sw_fs}}/19c/database/home"
 
@@ -148,98 +185,416 @@
 
     asm_password: "${ORA_DB_PASSWORD}"               # ASM sys user password for Single Instance GI Upgrade.
 
-    ####### Create diskgroup
-    grid_install_user: "{{ ora_grid_user }}"                       # Grid software owner.
-    oracle_home_gi: "{{ grid_ora_home }}"               # Grid Home Location.
-    oracle_rsp_stage: "{{ work_dir }}"                          # Any accessible location on remote host to stage scripts.
-    oracle_group: "{{ ora_oinstall_group }}"                          # Grid owner's primary user group.
-    oracle_asm_disk_string: "{{ asm_disk_loc_prefix }}"                 # Entry point of the raw disk. Example "/dev".
+    ####### ASM diskgroup configuration #######
+    grid_install_user: "{{ ora_grid_user }}"
+    oracle_home_gi: "{{ grid_ora_home }}"
+    oracle_rsp_stage: "{{ work_dir }}"
+    oracle_group: "{{ ora_oinstall_group }}"
+    oracle_asm_disk_string: "{{ asm_disk_loc_prefix }}"
+
     asm_diskgroups:
-      - diskgroup: DATA                         # Desired dikgroup name to be created.
+      - diskgroup: DATA
         properties:
-          - {redundancy: external, ausize: 4 }      # Redundancy: External, Normal, Ausize 4MB is default.
+          - {redundancy: external, ausize: 4 }
         attributes:
           - {name: 'compatible.rdbms', value: 19.0.0.0}
           - {name: 'compatible.asm', value: 19.0.0.0}
-        disk: "{{ asm_data_diskgroup_disk | default([]) | map('regex_replace', '^(.*)$', '{\"device\": \"\\1\"}') | map('from_yaml') | list }}"  # Update dynamically for da Provide raw disk name 1 on which the diskgroup needs to be created.
+        disk: "{{ discovered_disks.DATA | default([]) | map('regex_replace', '^(.*)$', '{\"device\": \"\\1\"}') | map('from_yaml') | list }}"
 
-      - diskgroup: REDO                         # Desired dikgroup name to be created.
+      - diskgroup: REDO
         properties:
-          - {redundancy: external, ausize: 4 }      # Redundancy: External, Normal, Ausize 4MB is default.
+          - {redundancy: external, ausize: 4 }
         attributes:
           - {name: 'compatible.rdbms', value: 19.0.0.0}
           - {name: 'compatible.asm', value: 19.0.0.0}
-        disk: "{{ asm_redo_diskgroup_disk | default([]) | map('regex_replace', '^(.*)$', '{\"device\": \"\\1\"}') | map('from_yaml') | list }}"
+        disk: "{{ discovered_disks.REDO | default([]) | map('regex_replace', '^(.*)$', '{\"device\": \"\\1\"}') | map('from_yaml') | list }}"
 
-    # Create/Drop database variables section
-    oracle_user: "{{ ora_user }}"             # Provide the username who owns the Oracle Installations.
-    oracle_stage: "{{ work_dir }}"            # Provide path on the target AIX lpar to stage response files.
+    # Database creation
+    oracle_user: "{{ ora_user }}"
+    oracle_stage: "{{ work_dir }}"
     oracle_base: "{{ ora_base }}"
-    oracle_dbf_dir_asm: '+DATA'                 # Provide path on the Lpar to store datafiles if ASM
+    oracle_dbf_dir_asm: '+DATA'
+    oracle_dbf_dir_fs: '/oradatafiles'
 
-
-    # This is layout to create a database.
-    oracle_databases:                                                           # Dictionary describing the databases to be installed.
-      - home:                                                                   # 'Last' directory in ORACLE_HOME path (e.g /u01/app/oracle/db1)
-        oracle_version_db: "{{ ora_version }}"                                  # Oracle version. Ex:For 12cR1 - 12.1.0.2, 19c
-        oracle_home: "{{ ora_sw_fs }}/19c/database/home"                        # Oracle Home path.
-        oracle_db_name: "{{ ora_sid }}"                                         # Provide Database name.
-        oracle_db_type: "{{ oracle_db_type }}"                                  # Type of database (RAC,RACONENODE,SI)
-        is_container: "{{ is_container }}"                                      # (true/false) Is the database a container database
-        pdb_prefix: "{{ pdb_prefix }}"                                          # Provide Pluggable database name.
-        num_pdbs: "{{ num_pdbs }}"                                              # Number of pluggable databases.
-        storage_type: "{{ 'ASM' if oracle_install_type == 'ASM' else 'FS' }}"   # Database storage to be used. ASM or FS. ASM mandatory for RAC DB type.
+    oracle_databases:
+      - home:
+        oracle_version_db: "{{ ora_version }}"
+        oracle_home: "{{ ora_sw_fs }}/19c/database/home"
+        oracle_db_name: "{{ ora_sid }}"
+        oracle_db_type: "{{ oracle_db_type }}"
+        is_container: "{{ is_container }}"
+        pdb_prefix: "{{ pdb_prefix }}"
+        num_pdbs: "{{ num_pdbs }}"
+        storage_type: "{{ 'ASM' if oracle_install_type == 'ASM' else 'FS' }}"
         state: "{{ state }}"
         redolog_size_in_mb: "{{ redolog_size_in_mb }}"
-        oracle_init_params: "{{ 'db_create_online_log_dest_1=+REDO' }}"
+        oracle_init_params: "{{ 'db_create_online_log_dest_1=+REDO,log_archive_dest_1=\"LOCATION=/oraarchlogs\"' if oracle_install_type == 'ASM' else 'db_create_online_log_dest_1=/oraredologs,log_archive_dest_1=\"LOCATION=/oraarchlogs\",filesystemio_options=SETALL' }}"
 
   pre_tasks:
-    - name: Discover disks for oravg (Oracle software VG)
-      ansible.builtin.shell: |
-        lsmpio -qa | grep oravg | tr -s ' ' | cut -d' ' -f1
-      register: oravg_disks
-      changed_when: false
+  #######################################################
+  # Create User and Group for both install_type
+  #######################################################
+    - name: Creating group {{ora_group}} with gid {{ora_group_gid}}
+      ansible.builtin.group:
+        name: "{{ora_group}}"
+        gid:  "{{ora_group_gid}}"
+        state: present
 
-    - name: Discover disks for CRSDG (ASM)
-      ansible.builtin.shell: |
-        lsmpio -qa | grep CRSDG | tr -s ' ' | cut -d' ' -f1
-      register: crsdg_disks
-      changed_when: false
+    - name: Creating group {{ora_oinstall_group}} with gid {{ora_oinstall_group_gid}}
+      ansible.builtin.group:
+        name: "{{ora_oinstall_group}}"
+        gid:  "{{ora_oinstall_group_gid}}"
+        state: present
 
-    - name: Discover disks for DATA (ASM)
-      ansible.builtin.shell: |
-        lsmpio -qa | grep DATA | tr -s ' ' | cut -d' ' -f1
-      register: data_disks
-      changed_when: false
+    - name: Creating group {{ora_oper_group}} with gid {{ora_oper_group_gid}}
+      ansible.builtin.group:
+        name: "{{ora_oper_group}}"
+        gid:  "{{ora_oper_group_gid}}"
+        state: present
 
-    - name: Discover disks for REDO (ASM)
+    - name: Creating user {{ora_user}} with uid {{ora_user_uid}}
+      ansible.builtin.user:
+        name: "{{ora_user}}"
+        group: "{{ora_oinstall_group}}"
+        groups: "{{ora_group}},{{ora_oper_group}}"
+        append: yes
+        uid: "{{ora_user_uid}}"
+    #######################################################
+    # Disk Discovery
+    #######################################################
+    - name: Discover all disks by label
       ansible.builtin.shell: |
-        lsmpio -qa | grep REDO | tr -s ' ' | cut -d' ' -f1
-      register: redo_disks
+        lsmpio -qa | grep -i '{{ item }}' | tr -s ' ' | cut -d' ' -f1
+      register: disk_discovery
       changed_when: false
+      loop:
+        - oravg
+        - CRSDG
+        - DATA
+        - REDO
+        - ARCH
 
-    - name: Discover disks for datavg (Data VG)
-      ansible.builtin.shell: |
-        lsmpio -qa | grep datavg | tr -s ' ' | cut -d' ' -f1
-      register: datavg_disks
-      changed_when: false
-
-    - name: Set discovered disk lists
+    - name: Build discovered disks dictionary
       ansible.builtin.set_fact:
-        ora_sw_vg_disk: "{{ oravg_disks.stdout_lines }}"
-        ora_data_vg_disk: "{{ datavg_disks.stdout_lines }}"
-        asm_diskgroup_disk: "{{ crsdg_disks.stdout_lines }}"
-        asm_data_diskgroup_disk: "{{ data_disks.stdout_lines }}"
-        asm_redo_diskgroup_disk: "{{ redo_disks.stdout_lines }}"
+        discovered_disks: >-
+          {{
+            discovered_disks | default({}) | combine({
+              item.item: item.stdout_lines
+            })
+          }}
+      loop: "{{ disk_discovery.results }}"
+      loop_control:
+        label: "{{ item.item }}"
 
-    - name: Debug disk vars
+    - name: Set backward-compatible disk variables
+      ansible.builtin.set_fact:
+        ora_sw_vg_disk: "{{ discovered_disks.oravg }}"
+        asm_diskgroup_disk: "{{ discovered_disks.CRSDG | default([]) }}"
+
+    - name: Debug discovered disks
       ansible.builtin.debug:
-        msg:
-          - "ora_sw_vg_disk = {{ ora_sw_vg_disk }}"
-          - "ora_data_vg_disk = {{ ora_data_vg_disk }}"
-          - "asm_data_diskgroup_disk = {{ asm_data_diskgroup_disk }}"
-          - "asm_diskgroup_disk = {{ asm_diskgroup_disk }}"
-          - "asm_redo_diskgroup_disk = {{ asm_redo_diskgroup_disk }}"
+        var: discovered_disks
+
+    #######################################################
+    # Discover disk sizes dynamically
+    #######################################################
+    - name: Get individual disk sizes for each label
+      ansible.builtin.shell: |
+        lsmpio -qa | grep -i '{{ item }}' | head -1 | awk '{print $4}' | sed 's/GiB//'
+      register: disk_size_discovery
+      changed_when: false
+      loop:
+        - DATA
+        - REDO
+        - ARCH
+      when: oracle_install_type == "JFS2"
+
+    - name: Build disk sizes dictionary
+      ansible.builtin.set_fact:
+        disk_sizes: >-
+          {{
+            disk_sizes | default({}) | combine({
+              item.item: item.stdout | float
+            })
+          }}
+      loop: "{{ disk_size_discovery.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when: oracle_install_type == "JFS2"
+
+    - name: Debug disk sizes
+      ansible.builtin.debug:
+        var: disk_sizes
+      when: oracle_install_type == "JFS2"
+
+    #######################################################
+    # JFS2 VG/LV/FS Creation for data and redo (only for JFS2 install type)
+    #######################################################
+    - name: JFS2 Storage Setup
+      when: oracle_install_type == "JFS2"
+      block:
+        - name: Check if JFS2 storage setup is already done
+          ansible.builtin.stat:
+            path: "{{ done_file_dir }}/jfs2_storage_setup.done"
+          register: jfs2_setup_done
+
+        - name: Create JFS2 Volume Groups, Logical Volumes, and Filesystems
+          when: not jfs2_setup_done.stat.exists
+          block:
+
+            #######################################################
+            # Step 1: Create Volume Groups
+            # mkvg -S -f -s 512 -y datavg hdisk2 hdisk3
+            # mkvg -S -f -s 512 -y redovg hdisk4
+            #######################################################
+            - name: Create Volume Groups
+              ibm.power_aix.lvg:
+                vg_name: "{{ item.vg_name }}"
+                pvs: "{{ discovered_disks[item.label] }}"
+                vg_type: scalable
+                pp_size: "{{ item.pp_size if item.vg_name != 'oravg' else omit }}"
+                state: present
+                force: yes
+              loop: "{{ jfs2_storage_config }}"
+              loop_control:
+                label: "{{ item.vg_name }}"
+              register: vg_result
+
+            - name: Debug VG creation results
+              ansible.builtin.debug:
+                msg: "VG {{ item.item.vg_name }} created successfully"
+              loop: "{{ vg_result.results }}"
+
+            #######################################################
+            # Step 2: Calculate MAX striped LV size per VG (AUTO)
+            #######################################################
+            - name: Calculate MAX LV PP per VG
+              ansible.builtin.shell: |
+                min_pp=999999
+                for d in {{ discovered_disks[item.label] | join(' ') }}; do
+                  pp=$(lspv $d | grep "FREE PPs" | awk '{print $3}')
+                  if [ $pp -lt $min_pp ]; then
+                    min_pp=$pp
+                  fi
+                done
+                echo $((min_pp * {{ discovered_disks[item.label] | length }}))
+              args:
+                executable: /bin/ksh
+              loop: "{{ jfs2_storage_config }}"
+              loop_control:
+                label: "{{ item.vg_name }}"
+              register: max_lv_pp
+              changed_when: false
+
+            - name: Build AUTO LV PP map
+              ansible.builtin.set_fact:
+                final_lv_pp_map: >-
+                  {{
+                    final_lv_pp_map | default({}) |
+                    combine({ item.item.vg_name: (item.stdout | int) })
+                  }}
+              loop: "{{ max_lv_pp.results }}"
+
+            #######################################################
+            # Step 3: Create Logical Volumes (Striped)
+            # mklv -S 2M -t jfs2 -y datalv -c 1 -C 2 datavg 2000 hdisk2 hdisk3
+            # mklv -S 2M -t jfs2 -y redolv -c 1 -C 1 redovg 400 hdisk4
+            #######################################################
+            - name: Create Logical Volumes with striping
+              ansible.builtin.shell: |
+                if lsvg -l {{ item.vg_name }} | grep -q "^{{ item.lv_name }} "; then
+                  echo "LV {{ item.lv_name }} already exists"
+                  exit 0
+                fi
+
+                mklv -S {{ item.strip_size }} \
+                     -t jfs2 \
+                     -y {{ item.lv_name }} \
+                     -c 1 \
+                     -C {{ discovered_disks[item.label] | length }} \
+                     {{ item.vg_name }} \
+                     {{ final_lv_pp_map[item.vg_name] }} \
+                     {{ discovered_disks[item.label] | join(' ') }}
+              args:
+                executable: /bin/ksh
+              loop: "{{ jfs2_storage_config }}"
+              loop_control:
+                label: "{{ item.lv_name }}"
+              register: lv_result
+              changed_when: "'already exists' not in lv_result.stdout"
+              failed_when:
+                - lv_result.rc != 0
+                - "'already exists' not in lv_result.stdout"
+
+            #######################################################
+            # Step 4: Create and Mount Filesystems
+            # crfs -v jfs2 -d datalv -m /oradatafiles -A yes -p rw -a log=INLINE -a noatime=yes -a agblksize=4096 && mount /oradatafiles
+            # crfs -v jfs2 -d redolv -m /oraredologs -A yes -p rw -a log=INLINE -a noatime=yes -a agblksize=512 && mount /oraredologs
+            #######################################################
+            - name: Create and Mount Filesystems
+              ansible.builtin.shell: |
+                if lsfs | mount | grep -q " {{ item.fs_name }} "; then
+                  echo "Filesystem exists"
+                  exit 0
+                fi
+
+                crfs -v jfs2 \
+                     -d {{ item.lv_name }} \
+                     -m {{ item.fs_name }} \
+                     -A yes \
+                     -p rw \
+                     -a log=INLINE \
+                     -a noatime=yes \
+                     -a agblksize={{ item.agblksize }}
+
+                mount {{ item.fs_name }}
+              args:
+                executable: /bin/ksh
+              loop: "{{ jfs2_storage_config }}"
+              loop_control:
+                label: "{{ item.fs_name }}"
+              register: fs_result
+              changed_when: "'exists' not in fs_result.stdout"
+              failed_when:
+                - fs_result.rc != 0
+                - "'exists' not in fs_result.stdout"
+
+            - name: Make noatime persistent for JFS2 filesystems (DATA + REDO)
+              ansible.builtin.shell: |
+                chfs -a options=noatime {{ item.fs_name }}
+              loop: "{{ jfs2_storage_config }}"
+              loop_control:
+                label: "{{ item.fs_name }}"
+
+            #######################################################
+            # Step 5: Ownership and Permissions
+            #######################################################
+            - name: Set Oracle ownership
+              ansible.builtin.file:
+                path: "{{ item.fs_name }}"
+                owner: oracle
+                group: oinstall
+                mode: '0775'
+                state: directory
+              loop: "{{ jfs2_storage_config }}"
+
+            #######################################################
+            # Step 6: Mark Completion
+            #######################################################
+            - name: Mark JFS2 setup complete
+              ansible.builtin.file:
+                path: "{{ done_file_dir }}/jfs2_storage_setup.done"
+                state: touch
+                mode: '0644'
+
+    #######################################################
+    # ARCH JFS2 VG/LV/FS Creation for BOTH ASM and JFS2 install types.
+    #######################################################
+    - name: Create ARCH JFS2 filesystem for archive logs
+      block:
+        - name: Check if ARCH JFS2 setup is already done
+          ansible.builtin.stat:
+            path: "{{ done_file_dir }}/arch_jfs2_setup.done"
+          register: arch_jfs2_done
+
+        - name: Create archvg Volume Group
+          ibm.power_aix.lvg:
+            vg_name: "{{ arch_jfs2_config[0].vg_name }}"
+            pvs: "{{ discovered_disks.ARCH }}"
+            vg_type: scalable
+            pp_size: "{{ arch_jfs2_config[0].pp_size }}"
+            state: present
+            force: yes
+          when: not arch_jfs2_done.stat.exists
+
+        - name: Calculate MAX LV PP for archvg
+          ansible.builtin.shell: |
+            min_pp=999999
+            for d in {{ discovered_disks.ARCH | join(' ') }}; do
+              pp=$(lspv $d | grep "FREE PPs" | awk '{print $3}')
+              if [ $pp -lt $min_pp ]; then
+                min_pp=$pp
+              fi
+            done
+            echo $((min_pp * {{ discovered_disks.ARCH | length }}))
+          args:
+            executable: /bin/ksh
+          register: arch_max_pp
+          changed_when: false
+          when: not arch_jfs2_done.stat.exists
+
+        - name: Create archlv Logical Volume (striped)
+          ansible.builtin.shell: |
+            if lsvg -l {{ arch_jfs2_config[0].vg_name }} | grep -q "^{{ arch_jfs2_config[0].lv_name }} "; then
+              echo "LV {{ arch_jfs2_config[0].lv_name }} already exists"
+              exit 0
+            fi
+            mklv -S {{ arch_jfs2_config[0].strip_size }} \
+                 -t jfs2 \
+                 -y {{ arch_jfs2_config[0].lv_name }} \
+                 -c 1 \
+                 -C {{ discovered_disks.ARCH | length }} \
+                 {{ arch_jfs2_config[0].vg_name }} \
+                 {{ arch_max_pp.stdout | int }} \
+                 {{ discovered_disks.ARCH | join(' ') }}
+          args:
+            executable: /bin/ksh
+          register: arch_lv_result
+          changed_when: "'already exists' not in arch_lv_result.stdout"
+          failed_when:
+            - arch_lv_result.rc != 0
+            - "'already exists' not in arch_lv_result.stdout"
+          when: not arch_jfs2_done.stat.exists
+
+        - name: Create and mount {{ arch_jfs2_config[0].fs_name }} filesystem
+          ansible.builtin.shell: |
+            if mount | grep -q " {{ arch_jfs2_config[0].fs_name }} "; then
+              echo "Filesystem exists"
+              exit 0
+            fi
+            if lsfs | grep -q "^{{ arch_jfs2_config[0].fs_name }}:"; then
+              echo "Filesystem exists"
+              exit 0
+            fi
+            crfs -v jfs2 \
+                 -d {{ arch_jfs2_config[0].lv_name }} \
+                 -m {{ arch_jfs2_config[0].fs_name }} \
+                 -A yes \
+                 -p rw \
+                 -a log=INLINE \
+                 -a noatime=yes \
+                 -a agblksize={{ arch_jfs2_config[0].agblksize }}
+            mount {{ arch_jfs2_config[0].fs_name }}
+          args:
+            executable: /bin/ksh
+          register: arch_fs_result
+          changed_when: "'exists' not in arch_fs_result.stdout"
+          failed_when:
+            - arch_fs_result.rc != 0
+            - "'exists' not in arch_fs_result.stdout"
+          when: not arch_jfs2_done.stat.exists
+
+        - name: Make noatime persistent for ARCH JFS2 filesystem
+          ansible.builtin.shell: |
+            chfs -a options=noatime {{ arch_jfs2_config[0].fs_name }}
+          when: not arch_jfs2_done.stat.exists
+
+        - name: Set Oracle ownership on {{ arch_jfs2_config[0].fs_name }}
+          ansible.builtin.file:
+            path: "{{ arch_jfs2_config[0].fs_name }}"
+            owner: oracle
+            group: oinstall
+            mode: '0775'
+            state: directory
+          when: not arch_jfs2_done.stat.exists
+
+        - name: Mark ARCH JFS2 setup complete
+          ansible.builtin.file:
+            path: "{{ done_file_dir }}/arch_jfs2_setup.done"
+            state: touch
+            mode: '0644'
+          when: not arch_jfs2_done.stat.exists
+
 
   roles:
     - role: ibm.power_aix_oracle.preconfig
@@ -252,13 +607,9 @@
     - role: ibm.power_aix_oracle.oracle_install_db
       tags: oracle_install_db
 
-    - role: ibm.power_aix_oracle.oracle_createdb
-      tags: oracle_createdb
-      when: oracle_install_type == "JFS"
-
   tasks:
     ##############################################################
-    # 1. ADD ASM Diskgroups
+    # ADD ASM Diskgroups for ASM install_type DATA and REDO
     ##############################################################
     - name: Check if ASM disk group was already added
       ansible.builtin.stat:
@@ -290,7 +641,8 @@
           ansible.builtin.include_role:
             name: ibm.power_aix_oracle.oracle_install_gi
             tasks_from: pre_asm_disks.yml
-          loop: "{{ (asm_data_diskgroup_disk | default([])) + (asm_redo_diskgroup_disk | default([])) }}"
+
+          loop: "{{ (discovered_disks.DATA | default([])) + (discovered_disks.REDO | default([])) }}"
           loop_control:
             loop_var: item
           when:
@@ -309,64 +661,217 @@
           ansible.builtin.file:
             path: "{{ done_file_dir }}/asmdiskgroup_add.done"
             state: touch
+            mode: '0644'
 
-        - name: Include Oracle Create DB Role as oracle user
-          ansible.builtin.import_role:
-            name: ibm.power_aix_oracle_dba.oradb_create
-          become: true
-          become_user: "{{ oracle_user }}"
-          become_method: ansible.builtin.su
-          tags: oracle_createdb
-
+    - name: Include Oracle Create DB Role as oracle user
+      ansible.builtin.import_role:
+        name: ibm.power_aix_oracle_dba.oradb_create
+      become: true
+      become_user: "{{ oracle_user }}"
+      become_method: ansible.builtin.su
+      tags: oracle_createdb
 
   post_tasks:
-    - name: Check if disks was already locked
-      ansible.builtin.stat:
-        path: "{{ done_file_dir }}/asmdiskgroup_locked.done"
-      register: dg_lock_flag
-
-    - name: "Lock disks"
-      when: not dg_lock_flag.stat.exists
+    ##############################################################
+    # Lock disks only ASM-managed disks (DATA + REDO + CRSDG)
+    ##############################################################
+    - name: Lock Oracle ASM disks
+      when: oracle_install_type == "ASM"
       block:
-        - name: Lock ASM disks only if not already locked
+        - name: Check if ASM disks already locked
+          ansible.builtin.stat:
+            path: "{{ done_file_dir }}/asm_disks_locked.done"
+          register: lock_flag
+
+        - name: Lock ASM disks (DATA + REDO + CRSDG only)
           ansible.builtin.shell: |
             if lkdev -L {{ item }} 2>/dev/null | grep -q "asmdisk"; then
               echo "Disk {{ item }} already locked"
             else
               lkdev -l {{ item }} -a -c "asmdisk"
+              echo "Locked disk {{ item }}"
             fi
-          loop: "{{ (asm_data_diskgroup_disk | default([])) + (asm_diskgroup_disk | default([])) + (asm_redo_diskgroup_disk | default([]))  + (ora_data_vg_disk | default([])) }}"
+          loop: "{{ discovered_disks.DATA | default([]) + discovered_disks.REDO | default([]) + discovered_disks.CRSDG | default([]) }}"
           loop_control:
             label: "{{ item }}"
-          register: lock_asm_disks
-          changed_when: "'already locked' not in lock_asm_disks.stdout"
-          failed_when: lock_asm_disks.rc not in [0]
-          ignore_errors: false
+          register: lock_result
+          changed_when: "'already locked' not in lock_result.stdout"
+          failed_when: lock_result.rc not in [0]
+          when: not lock_flag.stat.exists
 
         - name: Display lock command results
           ansible.builtin.debug:
-            var: lock_asm_disks.results | map(attribute='stdout') | list
+            var: lock_result.results | map(attribute='stdout') | list
+          when: not lock_flag.stat.exists
 
-        - name: Mark asm disk locked
+        - name: Mark ASM disks as locked
           ansible.builtin.file:
-            path: "{{ done_file_dir }}/asmdiskgroup_locked.done"
+            path: "{{ done_file_dir }}/asm_disks_locked.done"
             state: touch
+            mode: '0644'
+          when: not lock_flag.stat.exists
 
-    # Remove proxy entries from /etc/profile
+    ##############################################################
+    # Create .profile for Oracle and Grid users (AIX specific)
+    ##############################################################
+    - name: Ensure home directories exist
+      ansible.builtin.file:
+        path: "/home/{{ item }}"
+        state: directory
+        owner: "{{ item }}"
+        group: "{{ ora_oinstall_group }}"
+        mode: '0755'
+      loop:
+        - "{{ ora_user }}"
+        - "{{ ora_grid_user }}"
+      loop_control:
+        label: "{{ item }}"
+      when: item == ora_user or (item == ora_grid_user and oracle_install_type == "ASM")
+
+    - name: Create .profile for oracle user
+      ansible.builtin.blockinfile:
+        path: "/home/{{ ora_user }}/.profile"
+        create: yes
+        owner: "{{ ora_user }}"
+        group: "{{ ora_oinstall_group }}"
+        mode: '0644'
+        marker: "# {mark} ANSIBLE MANAGED ORACLE ENVIRONMENT"
+        block: |
+          # Oracle Environment Settings for AIX
+          umask 022
+
+          export ORACLE_BASE={{ ora_base }}
+          export ORACLE_HOME={{ ora_sw_fs }}/19c/database/home
+          export ORACLE_SID={{ ora_sid }}
+          export ORACLE_TERM=xterm
+          export TERM=xterm
+
+          # AIX specific - LIBPATH (not LD_LIBRARY_PATH)
+          export LIBPATH=$ORACLE_HOME/lib:$ORACLE_HOME/lib32:/usr/lib:/lib
+
+          # Path settings for AIX
+          export PATH=$ORACLE_HOME/bin:/usr/bin:/etc:/usr/sbin:/usr/ucb:/usr/bin/X11:/sbin:$PATH
+
+          # TNS Admin
+          export TNS_ADMIN=$ORACLE_HOME/network/admin
+
+          # Editor
+          export EDITOR=vi
+
+          # Timezone (adjust as needed)
+          export TZ={{ ansible_date_time.tz | default('UTC') }}
+
+          # Prompt
+          export PS1="[$LOGNAME@$(hostname):$ORACLE_SID]$ "
+
+          # Aliases for common tasks
+          alias ll='ls -la'
+          alias df='df -g'
+          alias sqlplus='sqlplus'
+          alias rman='rman'
+          alias lsnr='lsnrctl'
+          alias cdob='cd $ORACLE_BASE'
+          alias cdoh='cd $ORACLE_HOME'
+          alias cdtns='cd $TNS_ADMIN'
+          alias alert='tail -100f $ORACLE_BASE/diag/rdbms/$(echo $ORACLE_SID | tr "[A-Z]" "[a-z]")/$ORACLE_SID/trace/alert_$ORACLE_SID.log'
+          alias listener='tail -100f $ORACLE_BASE/diag/tnslsnr/$(hostname)/listener/trace/listener.log'
+
+          # Display environment on login
+          echo "Oracle Environment:"
+          echo "  ORACLE_SID  : $ORACLE_SID"
+          echo "  ORACLE_HOME : $ORACLE_HOME"
+          echo "  ORACLE_BASE : $ORACLE_BASE"
+
+    - name: Create .profile for grid user
+      ansible.builtin.blockinfile:
+        path: "/home/{{ ora_grid_user }}/.profile"
+        create: yes
+        owner: "{{ ora_grid_user }}"
+        group: "{{ ora_oinstall_group }}"
+        mode: '0644'
+        marker: "# {mark} ANSIBLE MANAGED GRID ENVIRONMENT"
+        block: |
+          # Grid Infrastructure Environment Settings for AIX
+          umask 022
+
+          export ORACLE_BASE={{ ora_base }}
+          export ORACLE_HOME={{ grid_ora_home }}
+          export ORACLE_SID=+ASM
+          export ORACLE_TERM=xterm
+          export TERM=xterm
+
+          # AIX specific - LIBPATH (not LD_LIBRARY_PATH)
+          export LIBPATH=$ORACLE_HOME/lib:$ORACLE_HOME/lib32:/usr/lib:/lib
+
+          # Path settings for AIX
+          export PATH=$ORACLE_HOME/bin:/usr/bin:/etc:/usr/sbin:/usr/ucb:/usr/bin/X11:/sbin:$PATH
+
+          # TNS Admin
+          export TNS_ADMIN=$ORACLE_HOME/network/admin
+
+          # Editor
+          export EDITOR=vi
+
+          # Timezone (adjust as needed)
+          export TZ={{ ansible_date_time.tz | default('UTC') }}
+
+          # Prompt
+          export PS1="[$LOGNAME@$(hostname):$ORACLE_SID]$ "
+
+          # Aliases for Grid operations
+          alias ll='ls -la'
+          alias df='df -g'
+          alias sqlplus='sqlplus'
+          alias asmcmd='asmcmd'
+          alias srvctl='srvctl'
+          alias crsctl='crsctl'
+          alias asmca='asmca'
+          alias cdob='cd $ORACLE_BASE'
+          alias cdoh='cd $ORACLE_HOME'
+          alias grid_alert='tail -100f $ORACLE_BASE/diag/asm/+asm/+ASM/trace/alert_+ASM.log'
+          alias crs_stat='crsctl stat res -t'
+
+          # Display environment on login
+          echo "Grid Infrastructure Environment:"
+          echo "  ORACLE_SID  : $ORACLE_SID"
+          echo "  ORACLE_HOME : $ORACLE_HOME"
+          echo "  ORACLE_BASE : $ORACLE_BASE"
+      when: oracle_install_type == "ASM"
+
+    - name: Verify .profile files were created
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      register: profile_check
+      loop:
+        - "/home/{{ ora_user }}/.profile"
+        - "/home/{{ ora_grid_user }}/.profile"
+      loop_control:
+        label: "{{ item }}"
+      when: item == "/home/{{ ora_user }}/.profile" or (oracle_install_type == "ASM" and item == "/home/{{ ora_grid_user }}/.profile")
+
+    - name: Display profile creation status
+      ansible.builtin.debug:
+        msg: "Profile created successfully for {{ item.item | basename | replace('.profile', '') | replace('/home/', '') }}"
+      loop: "{{ profile_check.results }}"
+      when:
+        - item.stat is defined
+        - item.stat.exists
+
+    ##############################################################
+    # Remove proxy settings
+    ##############################################################
     - name: Remove proxy settings from /etc/profile
       ansible.builtin.lineinfile:
         path: /etc/profile
         regexp: '^(export )?(http_proxy|https_proxy|HTTP_PROXY|HTTPS_PROXY|no_proxy)=.*$'
         state: absent
 
-    # Remove proxy entries from /etc/environment
     - name: Remove proxy settings from /etc/environment
       ansible.builtin.lineinfile:
         path: /etc/environment
         regexp: '^(http_proxy|https_proxy|HTTP_PROXY|HTTPS_PROXY|no_proxy)=.*$'
         state: absent
 
-    # Unset proxy variables for current session
     - name: Unset proxy variables in current session
       ansible.builtin.shell: |
         unset http_proxy

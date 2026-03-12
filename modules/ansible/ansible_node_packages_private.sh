@@ -4,11 +4,12 @@
 # This bash script performs                                #
 # - installation of packages                               #
 # - ansible galaxy collections.                            #
+# - /etc/hosts configuration                               #
 #                                                          #
 ############################################################
 
-GLOBAL_RHEL_PACKAGES="rhel-system-roles expect perl nfs-utils"
-GLOBAL_GALAXY_COLLECTIONS="ibm.power_linux_sap:>=3.0.0,<4.0.0 ibm.power_aix:2.1.1 ibm.power_aix_oracle:1.3.2 ibm.power_aix_oracle_dba:2.0.8"
+GLOBAL_RHEL_PACKAGES="rhel-system-roles expect perl nfs-utils python3-pip net-tools bind-utils ansible-core"
+GLOBAL_GALAXY_COLLECTIONS="ibm.power_linux_sap:>=3.0.0,<4.0.0 ibm.power_aix:2.1.1 ibm.power_aix_oracle:1.3.3 ibm.power_aix_oracle_dba:2.0.9 ibm.power_aix_oracle_rac_asm:1.3.8 ansible.utils:6.0.0"
 
 ############################################################
 # Start functions
@@ -56,6 +57,48 @@ main::subscription_mgr_check_process() {
 }
 
 ############################################################
+# Update /etc/hosts with IP and hostname entries          #
+############################################################
+main::update_hosts_file() {
+  # shellcheck disable=SC2154  # variables come from Terraform template
+  local hosts_entries="${hosts_file_entries}"
+
+  if [[ -z "${hosts_entries}" ]]; then
+    main::log_info "No host entries provided, skipping /etc/hosts update"
+    return 0
+  fi
+
+  main::log_info "Updating /etc/hosts file"
+
+  # Backup existing hosts file
+  if [[ ! -f /etc/hosts.backup ]]; then
+    cp /etc/hosts /etc/hosts.backup
+    main::log_info "Created backup: /etc/hosts.backup"
+  fi
+
+  # Add marker for managed entries
+  local marker_start="# BEGIN ANSIBLE MANAGED HOSTS"
+  local marker_end="# END ANSIBLE MANAGED HOSTS"
+
+  # Remove old managed section if it exists
+  sed -i "/${marker_start}/,/${marker_end}/d" /etc/hosts
+
+  # Add new entries
+  cat <<EOF >> /etc/hosts
+
+${marker_start}
+${hosts_entries}
+${marker_end}
+EOF
+
+  main::log_info "/etc/hosts updated successfully"
+  main::log_info "Added entries:"
+  echo "${hosts_entries}" | while IFS= read -r line; do
+    [[ -n "$line" ]] && main::log_info "  $line"
+  done
+}
+
+############################################################
 # RHEL : Install Packages                                  #
 ############################################################
 main::install_packages() {
@@ -74,9 +117,9 @@ main::install_packages() {
       while ! dnf -y install "${package}"; do
         count=$((count + 1))
         sleep 3
-        # shellcheck disable=SC2317
         if [[ ${count} -gt ${max_count} ]]; then
           main::log_error "Failed to install ${package}"
+          # shellcheck disable=SC2317
           break
         fi
       done
@@ -90,9 +133,9 @@ main::install_packages() {
       while ! ansible-galaxy collection install "${collection}" -f; do
         count=$((count + 1))
         sleep 3
-        # shellcheck disable=SC2317
         if [[ ${count} -gt ${max_count} ]]; then
           main::log_error "Failed to install ansible galaxy collection ${collection}"
+          # shellcheck disable=SC2317
           break
         fi
       done
@@ -102,6 +145,30 @@ main::install_packages() {
     main::log_info "All packages installed successfully"
   fi
 
+}
+
+############################################################
+# RHEL : Install python pip packages                       #
+############################################################
+main::install_pip_packages() {
+
+  if [[ ${LINUX_DISTRO} = "RHEL" ]]; then
+    main::log_info "Installing python pip packages"
+
+    local count=0
+    local max_count=3
+    while ! pip3 install --upgrade netaddr; do
+      count=$((count + 1))
+      sleep 3
+      if [[ ${count} -gt ${max_count} ]]; then
+        main::log_error "Failed to install python package: netaddr"
+        # shellcheck disable=SC2317
+        break
+      fi
+    done
+
+    main::log_info "Python package netaddr installed successfully"
+  fi
 }
 
 ############################################################
@@ -184,5 +251,7 @@ main::run_cloud_init() {
 main::setup_proxy
 main::get_os_version
 main::log_system_info
+main::update_hosts_file
 main::run_cloud_init
 main::install_packages
+main::install_pip_packages

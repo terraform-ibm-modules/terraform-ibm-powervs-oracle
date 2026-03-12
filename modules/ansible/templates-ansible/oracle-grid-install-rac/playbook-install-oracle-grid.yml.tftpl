@@ -1,0 +1,764 @@
+# ------------------------------------------------------------------------------------------------------------------------------------------------------
+# This playbook uses the ibm.power_aix_oracle_rac_asm and ibm.power_aix_oracle_dba collection. This collection is available on ansible galaxy
+# https://galaxy.ansible.com/ui/repo/published/ibm/power_aix_oracle_rac_asm/ and can be installed using 'ansible-galaxy collection install ibm.power_aix_oracle_rac_asm'
+# https://galaxy.ansible.com/ui/repo/published/ibm/power_aix_oracle_dba/ and can be installed using 'ansible-galaxy collection install ibm.power_aix_oracle_dba'
+# -------------------------------------------------------------------------------------------------------------------------------------------------------
+---
+- name: Ansible play to install Oracle and Grid RAC software on AIX
+  hosts: all
+  gather_facts: yes
+  collections:
+    - ibm.power_aix_oracle_rac_asm
+    - ibm.power_aix_oracle_dba
+
+  vars:
+    playbook_dir: "/root/terraform_files"
+    ansible_ssh_user: root
+
+  vars_files:
+    - /root/terraform_files/rac_vars.yml
+
+  pre_tasks:
+    - name: Create roles directory structure on control node
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/roles/bootstrap/files"
+        state: directory
+        mode: '0755'
+      delegate_to: localhost
+      run_once: true
+
+    #######################################################
+    # Disk Discovery
+    #######################################################
+    - name: Discover all disks by label
+      ansible.builtin.shell: |
+        lsmpio -qa | grep -i '{{ item }}' | tr -s ' ' | cut -d' ' -f1
+      register: disk_discovery
+      changed_when: false
+      loop:
+        - oravg
+        - CRSDG
+        - DATA
+        - REDO
+        - GIMR
+        - ARCH
+
+    - name: Build discovered disks dictionary
+      ansible.builtin.set_fact:
+        discovered_disks: >-
+          {{
+            discovered_disks | default({}) | combine({
+              item.item: item.stdout_lines
+            })
+          }}
+      loop: "{{ disk_discovery.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Build discovered disks dictionary
+      ansible.builtin.set_fact:
+        ora_sw_vg_disk:          "{{ discovered_disks.oravg }}"
+        asm_diskgroup_disk:      "{{ discovered_disks.CRSDG }}"
+        asm_data_diskgroup_disk: "{{ discovered_disks.DATA }}"
+        asm_redo_diskgroup_disk: "{{ discovered_disks.REDO }}"
+        ora_gimr_diskgroup_disk: "{{ discovered_disks.GIMR }}"
+        arch_local_disks:        "{{ discovered_disks.ARCH }}"
+
+    - name: Debug discovered disks
+      ansible.builtin.debug:
+        var: discovered_disks
+
+    #######################################################
+    # Extract correlated disk numbers from volume names
+    # Sequence in volume name  (data-1-... n)
+    #######################################################
+    - name: Extract current and target disk numbers from volume names
+      ansible.builtin.shell: |
+        lsmpio -qa | awk -v grp="{{ item.grep }}" -v kw="{{ item.vol_keyword }}" '
+          tolower($0) ~ tolower(grp) {
+            dev=$1; vol=$NF
+            curr=dev; sub("hdisk","",curr)
+            n=split(vol,a,"-")
+            for(i=1;i<=n;i++){
+              if(tolower(a[i])==tolower(kw) && i+1<=n && a[i+1]+0==a[i+1]){
+                new_num=a[i+1]; break
+              }
+            }
+            print curr, new_num
+          }
+        ' | sort +1 -n
+      changed_when: false
+      register: disk_num_raw
+      loop:
+        - { grep: 'crsdg', vol_keyword: 'crsdg' }
+        - { grep: 'gimr',  vol_keyword: 'gimr'  }
+        - { grep: 'data',  vol_keyword: 'data'  }
+        - { grep: 'redo',  vol_keyword: 'redo'  }
+        - { grep: 'arch',  vol_keyword: 'arch'  }
+      loop_control:
+        label: "{{ item.grep }}"
+
+    - name: Build correlated current/new number strings per group
+      ansible.builtin.set_fact:
+        crsdg_disk_string:     "{{ disk_num_raw.results[0].stdout_lines | map('split',' ') | map(attribute=0) | join(' ') }}"
+        crsdg_new_disk_string: "{{ disk_num_raw.results[0].stdout_lines | map('split',' ') | map(attribute=1) | join(' ') }}"
+        gimr_disk_string:      "{{ disk_num_raw.results[1].stdout_lines | map('split',' ') | map(attribute=0) | join(' ') }}"
+        gimr_new_disk_string:  "{{ disk_num_raw.results[1].stdout_lines | map('split',' ') | map(attribute=1) | join(' ') }}"
+        data_disk_string:      "{{ disk_num_raw.results[2].stdout_lines | map('split',' ') | map(attribute=0) | join(' ') }}"
+        data_new_disk_string:  "{{ disk_num_raw.results[2].stdout_lines | map('split',' ') | map(attribute=1) | join(' ') }}"
+        redo_disk_string:      "{{ disk_num_raw.results[3].stdout_lines | map('split',' ') | map(attribute=0) | join(' ') }}"
+        redo_new_disk_string:  "{{ disk_num_raw.results[3].stdout_lines | map('split',' ') | map(attribute=1) | join(' ') }}"
+        arch_disk_string:      "{{ disk_num_raw.results[4].stdout_lines | map('split',' ') | map(attribute=0) | join(' ') }}"
+        arch_new_disk_string:  "{{ disk_num_raw.results[4].stdout_lines | map('split',' ') | map(attribute=1) | join(' ') }}"
+        arch_local_disks:      "{{ disk_num_raw.results[4].stdout_lines | map('split',' ') | map(attribute=1) | map('regex_replace', '^', 'hdiskAR') | list }}"
+        arch_rename_pairs:     "{{ disk_num_raw.results[4].stdout_lines | map('split',' ') | list }}"
+
+    - name: Debug — correlated disk number mapping
+      ansible.builtin.debug:
+        msg:
+          - "CRSDG curr={{ crsdg_disk_string }} → new={{ crsdg_new_disk_string }} (collection renames to hdiskACR)"
+          - "GIMR  curr={{ gimr_disk_string  }} → new={{ gimr_new_disk_string  }} (collection renames to hdiskAGM)"
+          - "DATA  curr={{ data_disk_string  }} → new={{ data_new_disk_string  }} (collection renames to hdiskADT)"
+          - "REDO  curr={{ redo_disk_string  }} → new={{ redo_new_disk_string  }} (collection renames to hdiskARD)"
+          - "ARCH  curr={{ arch_disk_string }}  ->  new={{ arch_new_disk_string }}  (renamed to hdiskAR1..n by rendev in pre_tasks, then JFS2 in tasks)"
+
+    #######################################################
+    # Build ASM for collection config role handles CRSDG/GIMR/DATA/REDO only.
+    # ARCH disks are node-local JFS2.
+    #######################################################
+    - name: Merge ASM disk configuration into config
+      # Collection config role to rename
+      ansible.builtin.set_fact:
+        config: >-
+          {{
+            config | default({}) | combine({
+              'asmdisks': {
+                'mode': '660',
+                'diskgroups': [
+                  ['CRSDG', 'hdiskACR', 'EXTERNAL', crsdg_disk_string, crsdg_new_disk_string, 'clear_pvids', 'zero_disks'],
+                  ['GIMR',  'hdiskAGM', 'EXTERNAL', gimr_disk_string,  gimr_new_disk_string,  'clear_pvids', 'zero_disks'],
+                  ['DATA',  'hdiskADT', 'EXTERNAL', data_disk_string,  data_new_disk_string,  'clear_pvids', 'zero_disks'],
+                  ['REDO',  'hdiskARD', 'EXTERNAL', redo_disk_string,  redo_new_disk_string,  'clear_pvids', 'zero_disks'],
+                ]
+              }
+            }, recursive=True)
+          }}
+
+    - name: Ensure done_file_dir exists on this node
+      ansible.builtin.file:
+        path: "{{ done_file_dir }}"
+        state: directory
+        mode: '0755'
+
+    #######################################################
+    # Rename ARCH disks: hdiskN -> hdiskARn via rendev
+    #######################################################
+    - name: Rename ARCH disks to hdiskARn
+      block:
+        - name: Check if ARCH disks already renamed on this node
+          ansible.builtin.stat:
+            path: "{{ done_file_dir }}/arch_disks_renamed.done"
+          register: arch_rename_done
+
+        - name: Rename each ARCH disk via rendev
+          ansible.builtin.shell: |
+            curr_dev="hdisk{{ item[0] }}"
+            new_name="hdiskAR{{ item[1] }}"
+            if lsdev -l "$new_name" 2>/dev/null | grep -q "$new_name"; then
+              echo "SKIP: $new_name already exists"
+            else
+              rendev -l "$curr_dev" -n "$new_name"
+              echo "RENAMED: $curr_dev -> $new_name"
+            fi
+          loop: "{{ arch_rename_pairs }}"
+          loop_control:
+            label: "hdisk{{ item[0] }} -> hdiskAR{{ item[1] }}"
+          register: arch_rename_result
+          changed_when: "'RENAMED' in arch_rename_result.stdout"
+          failed_when:
+            - arch_rename_result.rc != 0
+            - "'SKIP' not in arch_rename_result.stdout"
+          when: not arch_rename_done.stat.exists
+
+        - name: Run cfgmgr to register renamed devices
+          ansible.builtin.command: cfgmgr
+          changed_when: false
+          when: not arch_rename_done.stat.exists
+
+        - name: Verify renamed ARCH disks exist
+          ansible.builtin.shell: |
+            lsdev -l "hdiskAR{{ item[1] }}" 2>/dev/null | grep -q "hdiskAR{{ item[1] }}"
+          loop: "{{ arch_rename_pairs }}"
+          loop_control:
+            label: "verify hdiskAR{{ item[1] }}"
+          changed_when: false
+          register: arch_verify
+          failed_when: arch_verify.rc != 0
+          when: not arch_rename_done.stat.exists
+
+        - name: Mark ARCH disk rename complete on this node
+          ansible.builtin.file:
+            path: "{{ done_file_dir }}/arch_disks_renamed.done"
+            state: touch
+            mode: '0644'
+          when: not arch_rename_done.stat.exists
+
+
+  roles:
+    - role: ibm.power_aix_oracle_rac_asm.bootstrap
+      vars:
+        download_dir: "~"
+        target_dir: "/tmp/.ansible.cpdir"
+      tags: bootstrap
+
+    - role: ibm.power_aix_oracle_rac_asm.preconfig
+      tags: preconfig
+
+    - role: ibm.power_aix_oracle_rac_asm.config
+      tags: config
+
+    - role: ibm.power_aix_oracle_rac_asm.install
+      tags: install
+
+  tasks:
+    #######################################################
+    # ARCH JFS2 VG/LV/FS Creation — per node, local
+    #######################################################
+    - name: Create ARCH JFS2 filesystem for archive logs (per-node, local)
+      block:
+        - name: Check if ARCH JFS2 setup already done on this node
+          ansible.builtin.stat:
+            path: "{{ done_file_dir }}/arch_jfs2_setup.done"
+          register: arch_jfs2_done
+
+        # mkvg -S -f -s 512 -y archvg hdiskAR1
+        - name: Create archvg Volume Group on this node
+          ibm.power_aix.lvg:
+            vg_name: archvg
+            pvs: "{{ arch_local_disks }}"
+            vg_type: scalable
+            pp_size: 512
+            state: present
+            force: yes
+          when: not arch_jfs2_done.stat.exists
+
+        - name: Calculate MAX LV PP for archvg on this node
+          ansible.builtin.shell: |
+            min_pp=999999
+            for d in {{ arch_local_disks | join(' ') }}; do
+              pp=$(lspv $d | grep "FREE PPs" | awk '{print $3}')
+              if [ $pp -lt $min_pp ]; then min_pp=$pp; fi
+            done
+            echo $((min_pp * {{ arch_local_disks | length }}))
+          args:
+            executable: /bin/ksh
+          register: arch_max_pp
+          changed_when: false
+          when: not arch_jfs2_done.stat.exists
+
+        # mklv -S 2M -t jfs2 -y archlv -c 1 -C 1 archvg 400 hdiskAR1
+        - name: Create archlv Logical Volume (striped) on this node
+          ansible.builtin.shell: |
+            if lsvg -l archvg | grep -q "^archlv "; then
+              echo "LV archlv already exists"; exit 0
+            fi
+            mklv -S 2M -t jfs2 -y archlv -c 1 \
+                 -C {{ arch_local_disks | length }} \
+                 archvg {{ arch_max_pp.stdout | int }} \
+                 {{ arch_local_disks | join(' ') }}
+          args:
+            executable: /bin/ksh
+          register: arch_lv_result
+          changed_when: "'already exists' not in arch_lv_result.stdout"
+          failed_when:
+            - arch_lv_result.rc != 0
+            - "'already exists' not in arch_lv_result.stdout"
+          when: not arch_jfs2_done.stat.exists
+
+        # crfs -v jfs2 -d archlv -m /oraarchlogs -A yes -p rw -a log=INLINE -a noatime=yes -a agblksize=512 && mount /oraarchlogs
+        - name: Create and mount /oraarchlogs filesystem on this node
+          ansible.builtin.shell: |
+            if lsfs | grep -q "^/oraarchlogs:"; then
+              echo "Filesystem exists"; exit 0
+            fi
+            crfs -v jfs2 -d archlv -m /oraarchlogs \
+                 -A yes -p rw -a log=INLINE \
+                 -a noatime=yes -a agblksize=512
+            mount /oraarchlogs
+          args:
+            executable: /bin/ksh
+          register: arch_fs_result
+          changed_when: "'exists' not in arch_fs_result.stdout"
+          failed_when:
+            - arch_fs_result.rc != 0
+            - "'exists' not in arch_fs_result.stdout"
+          when: not arch_jfs2_done.stat.exists
+
+        - name: Make noatime persistent for /oraarchlogs
+          ansible.builtin.shell: |
+            chfs -a options=noatime /oraarchlogs
+          when: not arch_jfs2_done.stat.exists
+
+        - name: Set Oracle ownership on /oraarchlogs
+          ansible.builtin.file:
+            path: /oraarchlogs
+            owner: "{{ oracle_user }}"
+            group: "{{ oracle_group }}"
+            mode: '0775'
+            state: directory
+          when: not arch_jfs2_done.stat.exists
+
+        - name: Mark ARCH JFS2 setup complete on this node
+          ansible.builtin.file:
+            path: "{{ done_file_dir }}/arch_jfs2_setup.done"
+            state: touch
+            mode: '0644'
+          when: not arch_jfs2_done.stat.exists
+
+    - name: Include Oracle Create DB Role as oracle user
+      ansible.builtin.import_role:
+        name: ibm.power_aix_oracle_dba.oradb_create
+      become: true
+      become_user: "{{ oracle_user }}"
+      become_method: ansible.builtin.su
+      tags: oracle_createdb
+
+  post_tasks:
+    ##############################################################
+    # Lock ASM disks (CRSDG + GIMR + DATA + REDO)
+    ##############################################################
+    - name: Lock Oracle ASM disks
+      block:
+        - name: Check if ASM disks already locked on this node
+          ansible.builtin.stat:
+            path: "{{ done_file_dir }}/asm_disks_locked.done"
+          register: lock_flag
+
+        - name: Build renamed ASM disk list for locking
+          ansible.builtin.shell: |
+            lspv | grep -E 'hdiskACR|hdiskAGM|hdiskADT|hdiskARD' | awk '{print $1}'
+          register: renamed_asm_disks
+          changed_when: false
+          when: not lock_flag.stat.exists
+
+        - name: Lock ASM disks (renamed devices)
+          ansible.builtin.shell: |
+            STATUS=$(lspv {{ item }} | grep "VG IDENTIFIER" | wc -l)
+            if lkdev -L {{ item }} 2>/dev/null | grep -qi "lock"; then
+              echo "SKIP: {{ item }} already locked"
+            else
+              lkdev -l {{ item }} -a -c "asmdisk" && echo "LOCKED: {{ item }}" || echo "FAILED: {{ item }}"
+            fi
+          loop: "{{ renamed_asm_disks.stdout_lines }}"
+          register: lock_result
+          changed_when: "'LOCKED' in lock_result.stdout"
+          failed_when: "'FAILED' in lock_result.stdout"
+          when: not lock_flag.stat.exists
+
+
+        - name: Display lock command results
+          ansible.builtin.debug:
+            var: lock_result.results | map(attribute='stdout') | list
+          when: not lock_flag.stat.exists
+
+        - name: Mark ASM disks as locked on this node
+          ansible.builtin.file:
+            path: "{{ done_file_dir }}/asm_disks_locked.done"
+            state: touch
+            mode: '0644'
+          when: not lock_flag.stat.exists
+
+    #################################################################
+    # Revert SSH configuration changes for RAC
+    #################################################################
+    - name: Check if SSH config was modified
+      ansible.builtin.stat:
+        path: "{{ done_file_dir }}/ssh_config_updated.done"
+      register: ssh_config_modified
+      when:
+        - AIX_INIT_MODE is defined
+        - AIX_INIT_MODE == "rac"
+
+    - name: Revert SSH configuration to original state
+      when:
+        - AIX_INIT_MODE is defined
+        - AIX_INIT_MODE == "rac"
+        - ssh_config_modified.stat.exists | default(false)
+      block:
+        - name: Check if backup exists
+          ansible.builtin.stat:
+            path: /etc/ssh/sshd_config.backup
+          register: backup_exists
+
+        - name: Restore original sshd_config from backup
+          ansible.builtin.copy:
+            src: /etc/ssh/sshd_config.backup
+            dest: /etc/ssh/sshd_config
+            remote_src: true
+            mode: preserve
+          when: backup_exists.stat.exists
+
+        - name: Stop sshd service
+          ansible.builtin.command: stopsrc -s sshd
+          changed_when: true
+
+        - name: Start sshd service
+          ansible.builtin.command: startsrc -s sshd
+          changed_when: true
+
+        - name: Verify sshd service is running after revert
+          ansible.builtin.command: lssrc -s sshd
+          changed_when: false
+          register: sshd_status_revert
+
+        - name: Display sshd status after revert
+          ansible.builtin.debug:
+            var: sshd_status_revert.stdout_lines
+
+    ##############################################################
+    # Create .profile for Oracle and Grid users (RAC Multi-Node)
+    ##############################################################
+    - name: Ensure home directories exist for oracle and grid users
+      ansible.builtin.file:
+        path: "/home/{{ item }}"
+        state: directory
+        owner: "{{ item }}"
+        group: "{{ oracle_group }}"
+        mode: '0755'
+      loop:
+        - "{{ oracle_user }}"
+        - "{{ global.grid_owner }}"
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Detect RAC node number from hostname
+      ansible.builtin.set_fact:
+        rac_node_number: "{{ ansible_hostname | regex_search('[0-9]+$') }}"
+
+    - name: Set Grid Home path
+      ansible.builtin.set_fact:
+        grid_home_path: "{{ config.grid_home | join('/') }}"
+
+    - name: Set node-specific ORACLE_SID and ASM SID
+      ansible.builtin.set_fact:
+        node_oracle_sid: "{{ oracle_databases[0].oracle_db_name }}{{ rac_node_number }}"
+        node_asm_sid: "+ASM{{ rac_node_number }}"
+
+    - name: Display node information
+      ansible.builtin.debug:
+        msg: |
+          Node: {{ ansible_hostname }}
+          Node Number: {{ rac_node_number }}
+          ORACLE_SID: {{ node_oracle_sid }}
+          ASM SID: {{ node_asm_sid }}
+          Cluster: {{ cluster_name }}
+          SCAN Name: {{ install.grid_rsp.install.crs.config.gpnp.scanName }}
+
+    - name: Create .profile for oracle user on RAC node
+      ansible.builtin.blockinfile:
+        path: "/home/{{ oracle_user }}/.profile"
+        create: yes
+        owner: "{{ oracle_user }}"
+        group: "{{ oracle_group }}"
+        mode: '0644'
+        marker: "# {mark} ANSIBLE MANAGED ORACLE RAC ENVIRONMENT"
+        block: |
+          # Oracle RAC Environment Settings for AIX - Node {{ rac_node_number }}
+          umask 022
+          export ORACLE_BASE={{ oracle_base }}
+          export ORACLE_HOME={{ oracle_databases[0].oracle_home }}
+          export ORACLE_SID={{ node_oracle_sid }}
+          export ORACLE_UNQNAME={{ oracle_databases[0].oracle_db_name }}
+          export ORACLE_TERM=xterm
+          export TERM=xterm
+          export ORACLE_HOSTNAME={{ ansible_hostname }}
+          export THREADS_FLAG=native
+          export LIBPATH=$ORACLE_HOME/lib:$ORACLE_HOME/lib32:/usr/lib:/lib
+          export PATH=$ORACLE_HOME/bin:/usr/bin:/etc:/usr/sbin:/usr/ucb:/usr/bin/X11:/sbin:$PATH
+          export TNS_ADMIN=$ORACLE_HOME/network/admin
+          export EDITOR=vi
+          export TZ={{ time_zone }}
+          export PS1="[$LOGNAME@{{ ansible_hostname }}:$ORACLE_SID]$ "
+          alias ll='ls -la'
+          alias df='df -g'
+          alias sqlplus='sqlplus'
+          alias rman='rman'
+          alias lsnr='lsnrctl'
+          alias cdob='cd $ORACLE_BASE'
+          alias cdoh='cd $ORACLE_HOME'
+          alias cdtns='cd $TNS_ADMIN'
+          alias srvctl='srvctl'
+          alias crsctl='crsctl'
+          alias cluvfy='cluvfy'
+          alias asmcmd='asmcmd'
+          alias alert='tail -100f $ORACLE_BASE/diag/rdbms/$(echo $ORACLE_UNQNAME | tr "[A-Z]" "[a-z]")/$ORACLE_SID/trace/alert_$ORACLE_SID.log'
+          alias listener='tail -100f $ORACLE_BASE/diag/tnslsnr/{{ ansible_hostname }}/listener/trace/listener.log'
+          alias racstat='srvctl status database -d $ORACLE_UNQNAME'
+          alias racconfig='srvctl config database -d $ORACLE_UNQNAME'
+          alias crsstat='crsctl stat res -t'
+          alias asmstat='srvctl status asm'
+          alias scanstat='srvctl status scan'
+          alias vipstat='srvctl status vip -node {{ ansible_hostname }}'
+          alias nodestat='srvctl status nodeapps'
+          alias clustercheck='cluvfy comp healthcheck -collect cluster -bestpractice'
+          alias clusterstat='crsctl check cluster -all'
+          echo "================================================"
+          echo "Oracle RAC Environment - Node {{ rac_node_number }}"
+          echo "================================================"
+          echo "  Cluster     : {{ cluster_name }}"
+          echo "  Hostname    : {{ ansible_hostname }}"
+          echo "  ORACLE_SID  : $ORACLE_SID"
+          echo "  DB Name     : $ORACLE_UNQNAME"
+          echo "  ORACLE_HOME : $ORACLE_HOME"
+          echo "  ORACLE_BASE : $ORACLE_BASE"
+          echo "  SCAN Name   : {{ install.grid_rsp.install.crs.config.gpnp.scanName }}"
+          echo "================================================"
+
+    - name: Create .profile for grid user on RAC node
+      ansible.builtin.blockinfile:
+        path: "/home/{{ global.grid_owner }}/.profile"
+        create: yes
+        owner: "{{ global.grid_owner }}"
+        group: "{{ oracle_group }}"
+        mode: '0644'
+        marker: "# {mark} ANSIBLE MANAGED GRID RAC ENVIRONMENT"
+        block: |
+          # Grid Infrastructure RAC Environment Settings for AIX - Node {{ rac_node_number }}
+          umask 022
+          export ORACLE_BASE={{ config.fs.ofa_fs }}/{{ global.grid_owner }}
+          export ORACLE_HOME={{ grid_home_path }}
+          export ORACLE_SID={{ node_asm_sid }}
+          export ORACLE_TERM=xterm
+          export TERM=xterm
+          export ORACLE_HOSTNAME={{ ansible_hostname }}
+          export CRS_HOME=$ORACLE_HOME
+          export GRID_HOME=$ORACLE_HOME
+          export LIBPATH=$ORACLE_HOME/lib:$ORACLE_HOME/lib32:/usr/lib:/lib
+          export PATH=$ORACLE_HOME/bin:/usr/bin:/etc:/usr/sbin:/usr/ucb:/usr/bin/X11:/sbin:$PATH
+          export TNS_ADMIN=$ORACLE_HOME/network/admin
+          export EDITOR=vi
+          export TZ={{ time_zone }}
+          export PS1="[$LOGNAME@{{ ansible_hostname }}:$ORACLE_SID]$ "
+          alias ll='ls -la'
+          alias df='df -g'
+          alias sqlplus='sqlplus'
+          alias asmcmd='asmcmd'
+          alias cdob='cd $ORACLE_BASE'
+          alias cdoh='cd $ORACLE_HOME'
+          alias srvctl='srvctl'
+          alias crsctl='crsctl'
+          alias asmca='asmca'
+          alias ocrcheck='ocrcheck'
+          alias ocrconfig='ocrconfig'
+          alias crsstat='crsctl stat res -t'
+          alias cluvfy='cluvfy'
+          alias asmstat='srvctl status asm'
+          alias asmdg='asmcmd lsdg'
+          alias asmdu='asmcmd du'
+          alias asmlsdsk='asmcmd lsdsk'
+          alias scanstat='srvctl status scan'
+          alias scanlsnr='srvctl status scan_listener'
+          alias vipstat='srvctl status vip -node {{ ansible_hostname }}'
+          alias nodeapps='srvctl status nodeapps'
+          alias grid_alert='tail -100f $ORACLE_BASE/diag/asm/+asm/{{ node_asm_sid }}/trace/alert_{{ node_asm_sid }}.log'
+          alias crs_alert='tail -100f $ORACLE_BASE/diag/crs/{{ ansible_hostname }}/crs/trace/alert.log'
+          alias crsd_log='tail -100f $ORACLE_BASE/diag/crs/{{ ansible_hostname }}/crs/trace/crsd.log'
+          alias ohasd_log='tail -100f $ORACLE_BASE/diag/crs/{{ ansible_hostname }}/ohasd/trace/ohasd.log'
+          alias clustercheck='crsctl check cluster -all'
+          alias clusterstatus='crsctl stat res -t'
+          alias votingdisk='crsctl query css votedisk'
+          alias ocrloc='ocrcheck'
+          alias ocrbackup='ocrconfig -showbackup'
+          echo "================================================"
+          echo "Grid Infrastructure RAC - Node {{ rac_node_number }}"
+          echo "================================================"
+          echo "  Cluster     : {{ cluster_name }}"
+          echo "  Hostname    : {{ ansible_hostname }}"
+          echo "  ORACLE_SID  : $ORACLE_SID"
+          echo "  ORACLE_HOME : $ORACLE_HOME"
+          echo "  ORACLE_BASE : $ORACLE_BASE"
+          echo "  CRS_HOME    : $CRS_HOME"
+          echo "  SCAN Name   : {{ install.grid_rsp.install.crs.config.gpnp.scanName }}"
+          echo "================================================"
+
+    - name: Create cluster-wide status script for oracle user
+      ansible.builtin.copy:
+        dest: "/home/{{ oracle_user }}/cluster_status.sh"
+        owner: "{{ oracle_user }}"
+        group: "{{ oracle_group }}"
+        mode: '0755'
+        content: |
+          #!/bin/ksh
+          echo "=============================================="
+          echo "RAC Cluster Status - $(date)"
+          echo "Cluster: {{ cluster_name }}"
+          echo "=============================================="
+          echo "--- Cluster Resources ---"
+          {{ grid_home_path }}/bin/crsctl stat res -t
+          echo "--- Database Status ---"
+          {{ oracle_databases[0].oracle_home }}/bin/srvctl status database -d {{ oracle_databases[0].oracle_db_name }}
+          echo "--- Database Config ---"
+          {{ oracle_databases[0].oracle_home }}/bin/srvctl config database -d {{ oracle_databases[0].oracle_db_name }}
+          echo "--- ASM Status ---"
+          {{ grid_home_path }}/bin/srvctl status asm
+          echo "--- SCAN Status ---"
+          {{ grid_home_path }}/bin/srvctl status scan
+          echo "--- SCAN Listener Status ---"
+          {{ grid_home_path }}/bin/srvctl status scan_listener
+          echo "--- Node Applications ---"
+          {{ grid_home_path }}/bin/srvctl status nodeapps
+          echo "--- Diskgroup Status (DATA + REDO + GIMR + CRSDG) ---"
+          {{ grid_home_path }}/bin/asmcmd lsdg
+          echo "--- Archive Log Filesystem (local JFS2, this node) ---"
+          df -g /oraarchlogs
+
+    - name: Create cluster-wide status script for grid user
+      ansible.builtin.copy:
+        dest: "/home/{{ global.grid_owner }}/grid_status.sh"
+        owner: "{{ global.grid_owner }}"
+        group: "{{ oracle_group }}"
+        mode: '0755'
+        content: |
+          #!/bin/ksh
+          echo "=============================================="
+          echo "Grid Infrastructure Status - $(date)"
+          echo "Cluster: {{ cluster_name }}"
+          echo "=============================================="
+          echo "--- Cluster Check (All Nodes) ---"
+          {{ grid_home_path }}/bin/crsctl check cluster -all
+          echo "--- All Resources ---"
+          {{ grid_home_path }}/bin/crsctl stat res -t
+          echo "--- ASM Diskgroups (DATA + REDO + GIMR + CRSDG) ---"
+          {{ grid_home_path }}/bin/asmcmd lsdg
+          echo "--- ASM Disk Usage ---"
+          {{ grid_home_path }}/bin/asmcmd du
+          echo "--- ASM Disks ---"
+          {{ grid_home_path }}/bin/asmcmd lsdsk
+          echo "--- Voting Disks ---"
+          {{ grid_home_path }}/bin/crsctl query css votedisk
+          echo "--- OCR Status ---"
+          {{ grid_home_path }}/bin/ocrcheck
+          echo "--- OCR Backup ---"
+          {{ grid_home_path }}/bin/ocrconfig -showbackup
+          echo "--- Cluster Interconnect ---"
+          {{ grid_home_path }}/bin/oifcfg getif
+          echo "--- GIMR Status ---"
+          {{ grid_home_path }}/bin/srvctl status mgmtdb
+          echo "--- Archive Log Filesystem (local JFS2, this node) ---"
+          df -g /oraarchlogs
+
+    - name: Create RAC database check script for oracle user
+      ansible.builtin.copy:
+        dest: "/home/{{ oracle_user }}/db_status.sh"
+        owner: "{{ oracle_user }}"
+        group: "{{ oracle_group }}"
+        mode: '0755'
+        content: |
+          #!/bin/ksh
+          export ORACLE_HOME={{ oracle_databases[0].oracle_home }}
+          export ORACLE_SID={{ oracle_databases[0].oracle_db_name }}{{ rac_node_number }}
+          export ORACLE_UNQNAME={{ oracle_databases[0].oracle_db_name }}
+          export PATH=$ORACLE_HOME/bin:$PATH
+          echo "=============================================="
+          echo "RAC Database Check - $(date)"
+          echo "Database: {{ oracle_databases[0].oracle_db_name }}"
+          echo "=============================================="
+          echo "--- Database Status ---"
+          srvctl status database -d {{ oracle_databases[0].oracle_db_name }}
+          echo "--- Instance Status ---"
+          sqlplus -s / as sysdba <<EOF
+          set linesize 200 pagesize 100
+          col instance_name format a15
+          col host_name format a20
+          col status format a12
+          col database_status format a15
+          select instance_name,host_name,status,database_status from gv\$instance order by instance_number;
+          EOF
+          echo "--- Tablespace Usage ---"
+          sqlplus -s / as sysdba <<EOF
+          set linesize 200 pagesize 100
+          col tablespace_name format a30
+          select tablespace_name,
+                 round(sum(bytes)/1024/1024/1024,2) as size_gb,
+                 round(sum(case when maxbytes=0 then bytes else maxbytes end)/1024/1024/1024,2) as max_gb
+          from dba_data_files
+          group by tablespace_name order by tablespace_name;
+          EOF
+          echo "--- ASM Diskgroup Usage (DATA + REDO) ---"
+          sqlplus -s / as sysdba <<EOF
+          set linesize 200 pagesize 100
+          col name format a20
+          select name,
+                 round(total_mb/1024,2) as total_gb,
+                 round(free_mb/1024,2) as free_gb,
+                 round((total_mb-free_mb)/1024,2) as used_gb
+          from v\$asm_diskgroup order by name;
+          EOF
+          echo "--- Archive Log Filesystem (local JFS2) ---"
+          df -g /oraarchlogs
+
+    - name: Create node-specific info script
+      ansible.builtin.copy:
+        dest: "/home/{{ oracle_user }}/node_info.sh"
+        owner: "{{ oracle_user }}"
+        group: "{{ oracle_group }}"
+        mode: '0755'
+        content: |
+          #!/bin/ksh
+          echo "================================================"
+          echo "RAC Node Information"
+          echo "================================================"
+          echo "Cluster Name     : {{ cluster_name }}"
+          echo "Node Hostname    : {{ ansible_hostname }}"
+          echo "Node Number      : {{ rac_node_number }}"
+          echo "DB Name          : {{ oracle_databases[0].oracle_db_name }}"
+          echo "Oracle SID       : {{ node_oracle_sid }}"
+          echo "Oracle Home      : {{ oracle_databases[0].oracle_home }}"
+          echo "Oracle Base      : {{ oracle_base }}"
+          echo "ASM SID          : {{ node_asm_sid }}"
+          echo "Grid Home        : {{ grid_home_path }}"
+          echo "ASM Diskgroups   : CRSDG, GIMR, DATA, REDO"
+          echo "Archive Storage  : JFS2 local /oraarchlogs (not shared, not ASM)"
+          echo "SCAN Name        : {{ install.grid_rsp.install.crs.config.gpnp.scanName }}"
+          echo "Public IP        : {{ ansible_default_ipv4.address }}"
+          echo "Domain           : {{ cluster_domain }}"
+          echo "Archive space    : $(df -g /oraarchlogs | tail -1)"
+          echo "Generated on     : {{ ansible_date_time.iso8601 }}"
+          echo "================================================"
+
+    - name: Verify .profile files were created
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      register: profile_check
+      loop:
+        - "/home/{{ oracle_user }}/.profile"
+        - "/home/{{ global.grid_owner }}/.profile"
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Display profile creation status
+      ansible.builtin.debug:
+        msg: |
+          Node {{ ansible_hostname }} ({{ rac_node_number }}):
+          Oracle ({{ oracle_user }}): {{ 'OK' if profile_check.results[0].stat.exists else 'FAILED' }}
+          Grid   ({{ global.grid_owner }}): {{ 'OK' if profile_check.results[1].stat.exists else 'FAILED' }}
+
+    #################################################################
+    # Remove proxy settings
+    #################################################################
+    - name: Remove proxy settings from /etc/profile
+      ansible.builtin.lineinfile:
+        path: /etc/profile
+        regexp: '^(export )?(http_proxy|https_proxy|HTTP_PROXY|HTTPS_PROXY|no_proxy)=.*$'
+        state: absent
+
+    - name: Remove proxy settings from /etc/environment
+      ansible.builtin.lineinfile:
+        path: /etc/environment
+        regexp: '^(http_proxy|https_proxy|HTTP_PROXY|HTTPS_PROXY|no_proxy)=.*$'
+        state: absent
+
+    - name: Unset proxy variables in current session
+      ansible.builtin.shell: |
+        unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY no_proxy
+      changed_when: false

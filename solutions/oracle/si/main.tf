@@ -10,7 +10,9 @@
 # Create RHEL Management VM
 
 locals {
-  nfs_mount = "/repos"
+  nfs_mount      = "/repos"
+  no_proxy_list  = "localhost,127.0.0.1"
+  pi_memory_size = "4"
 
   pi_boot_volume = {
     "name" : "rootvg",
@@ -21,10 +23,29 @@ locals {
 
   pi_crsdg_volume = {
     "name" : "CRSDG",
-    "size" : "8",
+    "size" : "1",
     "count" : "4",
     "tier" : "tier1"
   }
+
+  pi_arc_volume = {
+    "name" : "ARCH",
+    "size" : "10",
+    "count" : "4",
+    "tier" : "tier3"
+  }
+
+  pi_cpu_map = {
+    public  = 0.25
+    private = 0.05
+  }
+
+  pi_rhel_cpu_cores = lookup(local.pi_cpu_map, var.deployment_type, 0.25)
+
+  pi_aix_cpu_cores = coalesce(
+    try(var.pi_aix_instance.cores, null),
+    lookup(local.pi_cpu_map, var.deployment_type, 0.25)
+  )
 }
 
 module "pi_instance_rhel" {
@@ -36,8 +57,8 @@ module "pi_instance_rhel" {
   pi_image_id             = var.pi_rhel_image_name
   pi_networks             = var.pi_networks
   pi_instance_name        = "${var.prefix}-mgmt-rhel"
-  pi_memory_size          = "4"
-  pi_number_of_processors = ".05"
+  pi_memory_size          = local.pi_memory_size
+  pi_number_of_processors = local.pi_rhel_cpu_cores
   pi_server_type          = var.pi_rhel_management_server_type
   pi_cpu_proc_type        = "shared"
   pi_storage_config = [{
@@ -61,18 +82,54 @@ module "pi_instance_aix" {
   pi_networks                = var.pi_networks
   pi_instance_name           = "${var.prefix}-ora-aix"
   pi_pin_policy              = var.pi_aix_instance.pin_policy
-  pi_server_type             = var.pi_aix_instance.server_type
-  pi_number_of_processors    = var.pi_aix_instance.number_processors
-  pi_memory_size             = var.pi_aix_instance.memory_size
-  pi_cpu_proc_type           = var.pi_aix_instance.cpu_proc_type
+  pi_server_type             = var.pi_aix_instance.machine_type
+  pi_number_of_processors    = local.pi_aix_cpu_cores
+  pi_memory_size             = var.pi_aix_instance.memory_gb
+  pi_cpu_proc_type           = var.pi_aix_instance.core_type
   pi_boot_image_storage_tier = "tier1"
   pi_user_tags               = var.pi_user_tags
+
+  # Storage configuration based on install type - using user-provided variables
   pi_storage_config = (
     var.oracle_install_type == "ASM" ?
-    [local.pi_boot_volume, var.pi_oravg_volume, local.pi_crsdg_volume, var.pi_data_volume, var.pi_redo_volume] :
-    [local.pi_boot_volume, var.pi_oravg_volume, var.pi_datavg_volume]
+    [
+      local.pi_boot_volume,
+      var.pi_oravg_volume,   # Oracle software VG
+      local.pi_crsdg_volume, # ASM CRSDG
+      var.pi_data_volume,    # ASM DATA diskgroup
+      var.pi_redo_volume,    # ASM REDO diskgroup
+      local.pi_arc_volume    # ASM ARCH diskgroup
+    ] :
+    [
+      local.pi_boot_volume,
+      var.pi_oravg_volume, # Oracle software VG
+      var.pi_data_volume,  # JFS2 DATAVG (for datafiles)
+      var.pi_redo_volume,  # JFS2 REDOVG (for redo + control files)
+      local.pi_arc_volume  # JFS2 ARCHVG (for archives)
+    ]
   )
+}
 
+###########################################################
+# START SQUID PROXY ON BASTION HOST
+###########################################################
+
+resource "null_resource" "squid_start" {
+  depends_on = [module.pi_instance_rhel]
+
+  provisioner "remote-exec" {
+    inline = [
+      "if systemctl is-active squid; then echo 'Squid already running'; else systemctl start squid; fi",
+      "systemctl enable squid"
+    ]
+
+    connection {
+      type        = "ssh"
+      user        = "root"
+      host        = var.bastion_host_ip
+      private_key = var.ssh_private_key
+    }
+  }
 }
 
 ###########################################################
@@ -85,20 +142,14 @@ locals {
       enable     = true
       squid_port = "3128"
     }
-    dns = {
-      enable      = true
-      dns_servers = "161.26.0.7; 161.26.0.8; 9.9.9.9;"
-    }
-    ntp = {
-      enable = true
-    }
   }
 }
 
 module "pi_instance_rhel_init" {
   source     = "../../../modules/ansible"
-  depends_on = [module.pi_instance_rhel]
+  depends_on = [module.pi_instance_rhel, null_resource.squid_start]
 
+  deployment_type        = var.deployment_type
   bastion_host_ip        = var.bastion_host_ip
   ansible_host_or_ip     = module.pi_instance_rhel.pi_instance_primary_ip
   ssh_private_key        = var.ssh_private_key
@@ -137,18 +188,21 @@ locals {
   squid_server_ip = var.squid_server_ip
   playbook_aix_init_vars = {
     PROXY_IP_PORT          = "${local.squid_server_ip}:3128"
-    NO_PROXY               = "TODO"
+    NO_PROXY               = local.no_proxy_list
     ORA_NFS_HOST           = module.pi_instance_aix.pi_instance_primary_ip
     ORA_NFS_DEVICE         = local.nfs_mount
     EXTEND_ROOT_VOLUME_WWN = module.pi_instance_aix.pi_storage_configuration[0].wwns
+    AIX_INIT_MODE          = ""
+    ROOT_PASSWORD          = ""
   }
 
 }
 
 module "pi_instance_aix_init" {
   source     = "../../../modules/ansible"
-  depends_on = [module.pi_instance_rhel_init]
+  depends_on = [module.pi_instance_rhel_init, module.pi_instance_aix]
 
+  deployment_type        = var.deployment_type
   bastion_host_ip        = var.bastion_host_ip
   ansible_host_or_ip     = module.pi_instance_rhel.pi_instance_primary_ip
   ssh_private_key        = var.ssh_private_key
@@ -267,6 +321,15 @@ module "ibmcloud_cos_grid" {
 ###########################################################
 
 locals {
+  # Calculate total sizes from user variables for passing to Ansible
+  # Each volume object has: size (per disk) and count (number of disks)
+
+  # Calculate total size: size per disk * count
+  oravg_total_size = tonumber(var.pi_oravg_volume.size) * tonumber(var.pi_oravg_volume.count)
+  data_total_size  = tonumber(var.pi_data_volume.size) * tonumber(var.pi_data_volume.count)
+  redo_total_size  = tonumber(var.pi_redo_volume.size) * tonumber(var.pi_redo_volume.count)
+  arch_total_size  = tonumber(local.pi_arc_volume.size) * tonumber(local.pi_arc_volume.count)
+
   playbook_oracle_install_vars = {
     ORA_NFS_HOST        = module.pi_instance_rhel.pi_instance_primary_ip
     ORA_NFS_DEVICE      = local.nfs_mount
@@ -277,6 +340,12 @@ locals {
     ORA_SID             = var.ora_sid
     ORACLE_INSTALL_TYPE = var.oracle_install_type
     ORA_DB_PASSWORD     = var.ora_db_password
+    REDOLOG_SIZE_IN_MB  = var.redolog_size_in_mb
+    # Pass calculated sizes to Ansible (subtract 1GB for VG overhead)
+    ORAVG_SIZE = tostring(local.oravg_total_size - 1)
+    DATA_SIZE  = tostring(local.data_total_size - 1)
+    REDO_SIZE  = tostring(local.redo_total_size - 1)
+    ARCH_SIZE  = tostring(local.arch_total_size - 1)
   }
 }
 
@@ -284,6 +353,7 @@ module "oracle_install" {
   source     = "../../../modules/ansible"
   depends_on = [module.ibmcloud_cos_grid, module.pi_instance_aix_init]
 
+  deployment_type        = var.deployment_type
   bastion_host_ip        = var.bastion_host_ip
   ansible_host_or_ip     = module.pi_instance_rhel.pi_instance_primary_ip
   ssh_private_key        = var.ssh_private_key
@@ -300,4 +370,26 @@ module "oracle_install" {
   src_inventory_template_name = "inventory.tftpl"
   dst_inventory_file_name     = "oracle-grid-install-inventory"
   inventory_template_vars     = { "host_or_ip" : module.pi_instance_aix.pi_instance_primary_ip }
+}
+
+###########################################################
+# STOP SQUID PROXY ON BASTION HOST - AFTER ORACLE INSTALL
+###########################################################
+
+resource "null_resource" "squid_stop" {
+  depends_on = [module.oracle_install]
+
+  provisioner "remote-exec" {
+    inline = [
+      "if systemctl is-active squid; then systemctl stop squid; fi",
+      "systemctl disable squid"
+    ]
+
+    connection {
+      type        = "ssh"
+      user        = "root"
+      host        = var.bastion_host_ip
+      private_key = var.ssh_private_key
+    }
+  }
 }

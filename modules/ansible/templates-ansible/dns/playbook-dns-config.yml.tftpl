@@ -1,0 +1,117 @@
+---
+- name: Configure BIND DNS Server on RHEL for N-Node RAC
+  hosts: all
+  become: yes
+  gather_facts: true
+
+  vars:
+    dns_server_ip: "${dns_server_ip}"
+    dns_domain_name: "${dns_domain_name}"
+    dns_hostname: "${dns_hostname}"
+    scan_name: "${scan_name}"
+    rac_nodes_count: ${rac_nodes_count}
+    scan_ips: ${scan_ips}
+    rac_nodes: ${rac_nodes}
+
+  tasks:
+    - name: Install BIND packages on RHEL
+      ansible.builtin.package:
+        name:
+          - bind
+          - bind-utils
+        state: present
+      when: ansible_facts.os_family == "RedHat"
+
+    - name: Enable named service
+      ansible.builtin.service:
+        name: named
+        enabled: yes
+      when: ansible_facts.os_family == "RedHat"
+
+    - name: Create named.conf configuration
+      ansible.builtin.copy:
+        dest: /etc/named.conf
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          options {
+              directory "/var/named";
+              listen-on port 53 { any; };
+              allow-query { any; };
+              recursion yes;
+          };
+
+          zone "{{ dns_domain_name }}" IN {
+              type master;
+              file "named.{{ dns_domain_name }}";
+          };
+
+          zone "." IN {
+              type hint;
+              file "named.root.hints";
+          };
+
+    - name: Create forward zone file for {{ dns_domain_name }}
+      ansible.builtin.copy:
+        dest: /var/named/named.{{ dns_domain_name }}
+        owner: root
+        group: named
+        mode: '0644'
+        content: |
+          $TTL 86400
+          @   IN  SOA {{ dns_hostname }}. root.{{ dns_hostname }}. (
+                  41
+                  3600
+                  600
+                  3600000
+                  86400
+          )
+
+              IN  NS  {{ dns_hostname }}.
+
+          {{ dns_hostname }}        IN  A   {{ dns_server_ip }}
+
+          {% for node in rac_nodes %}
+          {{ node.hostname }}      IN  A   {{ node.pub_ip }}
+          {{ node.hostname }}-vip  IN  A   {{ node.vip }}
+          {% endfor %}
+
+          {% for ip in scan_ips %}
+          {{ scan_name }}          IN  A   {{ ip }}
+          {% endfor %}
+
+    - name: Create root hints file
+      ansible.builtin.copy:
+        dest: /var/named/named.root.hints
+        owner: root
+        group: named
+        mode: '0644'
+        content: |
+          ;
+          ; empty root hints
+          ;
+
+    - name: Restore SELinux context on named files
+      ansible.builtin.command: restorecon -Rv /var/named
+      when: ansible_facts.selinux.status == "enabled"
+
+    - name: Restart named service
+      ansible.builtin.service:
+        name: named
+        state: restarted
+      when: ansible_facts.os_family == "RedHat"
+
+    - name: Verify named service status
+      ansible.builtin.command: systemctl is-active named
+      register: named_status
+      changed_when: false
+      failed_when: named_status.stdout.strip() != "active"
+
+    - name: Display named service status
+      ansible.builtin.debug:
+        msg: "named service status: {{ named_status.stdout }}"
+
+    - name: Display configured RAC nodes
+      ansible.builtin.debug:
+        msg: "Configured {{ rac_nodes_count }} RAC nodes in DNS"
