@@ -4,14 +4,14 @@ This module creates a Oracle 19c Database Single Instance(SI) or Real Applicatio
 ## Deployment variations
 
 ### Single Instance Database
-https://github.ibm.com/Shiva-Laveti/oracle_da_readme/blob/da-dev/da-si.md
+https://github.com/terraform-ibm-modules/terraform-ibm-powervs-oracle/blob/main/solutions/oracle/si/README.md
 
-<img width="342" alt="image" src="https://raw.githubusercontent.com/nava-dba/terraform-ibm-oracle-powervs-da/3f48b4caf7a1b28941949c0ccc6120f461a876e2/images/Oracle_DA_SI.svg" />
+<img width="342" alt="image" src="https://raw.githubusercontent.com/terraform-ibm-modules/terraform-ibm-powervs-oracle/9a557429402cae2f94c3ee095f1da49d999eaf18/images/Oracle_DA_SI.svg" />
 
 ### RAC Database
-https://github.ibm.com/Shiva-Laveti/oracle_da_readme/blob/da-dev/da-rac.md
+https://github.com/terraform-ibm-modules/terraform-ibm-powervs-oracle/blob/main/solutions/oracle/rac/README.md
 
-<img width="342" alt="image" src="https://raw.githubusercontent.com/nava-dba/terraform-ibm-oracle-powervs-da/3f48b4caf7a1b28941949c0ccc6120f461a876e2/images/Oracle_DA_RAC.svg" />
+<img width="342" alt="image" src="https://raw.githubusercontent.com/terraform-ibm-modules/terraform-ibm-powervs-oracle/9a557429402cae2f94c3ee095f1da49d999eaf18/images/Oracle_DA_RAC.svg" />
 
 ### Tested Environment
 

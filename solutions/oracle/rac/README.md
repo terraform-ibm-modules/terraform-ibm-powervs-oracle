@@ -29,7 +29,7 @@ This automated deployable architecture guide demonstrates how to deploy an Oracl
 
 ## Reference Architecture
 
-<img width="342" alt="image" src="https://raw.githubusercontent.com/nava-dba/terraform-ibm-oracle-powervs-da/ab93802d70c3f2036f14857602a9ee319a4f6706/images/Oracle_DA_RAC.svg" />
+<img width="342" alt="image" src="https://raw.githubusercontent.com/terraform-ibm-modules/terraform-ibm-powervs-oracle/9a557429402cae2f94c3ee095f1da49d999eaf18/images/Oracle_DA_RAC.svg" />
 
 Using Terraform, both RHEL and AIX virtual machines are provisioned as part of the deployment. The RHEL VM acts as the Ansible controller, hosting the playbooks required to install and configure the Oracle Database on the AIX system. It is also configured with an NFS server to stage and provide access to the Oracle installation binaries for the AIX VMs and DNS server for the name resolution of RAC VIPs.
 
@@ -140,7 +140,7 @@ For more information related to Private Cloud Architecture, please refer to [IBM
 
 Sample Bastion Host details:
 
-<img width="800" alt="image" src="https://github.com/nava-dba/terraform-ibm-oracle-powervs-da/blob/dev/images/screenshot1.png?raw=true" />
+<img width="800" alt="image" src="https://github.com/terraform-ibm-modules/terraform-ibm-powervs-oracle/blob/main/images/screenshot1.png?raw=true" />
 
 **Step F**: Configure Squid Proxy service on Bastion host
 1. Squid Server is a proxy service which should be configured in the Bastion host, this will allow internet access to the resources in PowerVS workspace. To setup Squid, refer to the section ["Configuring the proxy instance"](https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-set-full-Linux)
@@ -154,7 +154,7 @@ Sample Bastion Host details:
 
 Sample Security Group Details:
 
-<img width="800" alt="image" src="https://github.com/nava-dba/terraform-ibm-oracle-powervs-da/blob/dev/images/screenshot2.png?raw=true" />
+<img width="800" alt="image" src="https://github.com/terraform-ibm-modules/terraform-ibm-powervs-oracle/blob/main/images/screenshot2.png?raw=true" />
 
 Note: For more security we can restrict the source in inbound rule to a specific networks instead of 0.0.0.0
 
