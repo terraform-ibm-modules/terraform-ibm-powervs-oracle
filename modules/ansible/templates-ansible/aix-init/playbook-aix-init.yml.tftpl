@@ -88,7 +88,7 @@
             state: touch
 
     #################################################################
-    # 1.5 Disk Performance Tuning (queue_depth + reserve_policy)
+    # 1.5 Disk Performance Tuning (queue_depth + reserve_policy + max_transfer)
     #################################################################
 
     - name: Check if disk tuning already done
@@ -96,7 +96,7 @@
         path: "{{ done_file_dir }}/disk_tuning.done"
       register: disk_tuning_done
 
-    - name: Tune AIX disk attributes online
+    - name: Tune AIX disk attributes
       when: not disk_tuning_done.stat.exists
       block:
 
@@ -106,14 +106,27 @@
           register: hdisk_list
           changed_when: false
 
-        - name: Apply queue_depth and reserve_policy
+        - name: Apply queue_depth and reserve_policy online
           ansible.builtin.shell: |
             chdev -l {{ item }} -a queue_depth=64 -a reserve_policy=no_reserve -U
           loop: "{{ hdisk_list.stdout_lines }}"
 
+        - name: Apply max_transfer with chdev -P on all disks
+          ansible.builtin.shell: |
+            current_value=$(lsattr -El {{ item }} -a max_transfer 2>/dev/null | awk '{print $2}')
+            if [ "$current_value" = "0x100000" ]; then
+              echo "SKIP: {{ item }} already set to 0x100000"
+            else
+              chdev -P -l {{ item }} -a max_transfer=0x100000
+              echo "UPDATED: {{ item }} max_transfer=0x100000"
+            fi
+          loop: "{{ hdisk_list.stdout_lines | default([]) }}"
+          register: max_transfer_result
+          changed_when: "'UPDATED' in max_transfer_result.stdout"
+
         - name: Verify attributes
           ansible.builtin.shell: |
-            lsattr -El {{ item }} | egrep "queue_depth|reserve_policy"
+            lsattr -El {{ item }} | egrep "queue_depth|reserve_policy|max_transfer"
           loop: "{{ hdisk_list.stdout_lines }}"
           changed_when: false
 
@@ -202,7 +215,38 @@
           changed_when: false
 
     #################################################################
-    # 3. Reset root password
+    # 2.5 Sync system time (before password reset to avoid expiration)
+    #################################################################
+    - name: Check if time sync already done
+      ansible.builtin.stat:
+        path: "{{ done_file_dir }}/time_sync.done"
+      register: time_sync_done
+
+    - name: Sync system time with NTP server
+      when:
+        - AIX_INIT_MODE == "rac"
+        - not time_sync_done.stat.exists
+      block:
+
+        - name: Capture time from RHEL Control Node
+          ansible.builtin.set_fact:
+            rhel_time: "{{ lookup('pipe', 'date +%m%d%H%M%y') }}"
+          delegate_to: localhost
+
+        - name: Set AIX System Clock using rhel time
+          ansible.builtin.command: "date -u {{ rhel_time }}"
+          register: result
+        - name: Print debug
+          ansible.builtin.debug:
+            var: result.stdout_lines
+
+        - name: Mark time sync done
+          ansible.builtin.file:
+            path: "{{ done_file_dir }}/time_sync.done"
+            state: touch
+
+    #################################################################
+    # 3. Reset root password (after time sync)
     #################################################################
     - name: Check if Reset root password on AIX already done
       ansible.builtin.stat:

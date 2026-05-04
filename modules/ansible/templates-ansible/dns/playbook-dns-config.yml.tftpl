@@ -15,12 +15,12 @@
 
   tasks:
     - name: Install BIND packages on RHEL
-      ansible.builtin.package:
+      ansible.builtin.dnf:
         name:
           - bind
           - bind-utils
         state: present
-      when: ansible_facts.os_family == "RedHat"
+      delegate_to: localhost
 
     - name: Enable named service
       ansible.builtin.service:

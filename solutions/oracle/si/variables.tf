@@ -64,7 +64,7 @@ variable "pi_aix_image_name" {
 }
 
 variable "pi_aix_instance" {
-  description = "Configuration for the IBM PowerVS AIX instance where Oracle Database will be installed. Fields: memory_gb (RAM in GB), cores (number of virtual processors), core_type (shared | capped | dedicated), machine_type (e.g., s1022 or e980), pin_policy (hard | soft), health_status (OK | Warning | Critical)."
+  description = "Configuration for the IBM PowerVS AIX instance where Oracle Database will be installed. Fields: memory_gb (RAM in GB, minimum 16GB), cores (number of virtual processors), core_type (shared | capped | dedicated), machine_type (e.g., s1022 or e980), pin_policy (hard | soft), health_status (OK | Warning | Critical)."
   type = object({
     memory_gb     = number
     cores         = optional(number)
@@ -73,6 +73,20 @@ variable "pi_aix_instance" {
     pin_policy    = string
     health_status = string
   })
+
+  validation {
+    condition     = var.pi_aix_instance.memory_gb >= 16
+    error_message = "AIX instance memory_gb must be at least 16GB. Current value: ${var.pi_aix_instance.memory_gb}GB"
+  }
+  
+  validation {
+    condition = (
+      var.pi_aix_instance.cores == null ? true :
+      var.deployment_type == "public" ? var.pi_aix_instance.cores >= 0.25 :
+      var.pi_aix_instance.cores >= 0.05
+    )
+    error_message = "AIX instance cores must be at least 0.25 for public deployment or 0.05 for private deployment. Current: ${coalesce(var.pi_aix_instance.cores, "not specified")} for ${var.deployment_type}"
+  }
 }
 
 variable "pi_networks" {
@@ -117,6 +131,11 @@ variable "pi_oravg_volume" {
     count = string
     tier  = string
   })
+
+  validation {
+    condition     = tonumber(var.pi_oravg_volume.size) * tonumber(var.pi_oravg_volume.count) >= 120
+    error_message = "Total Oracle Binary disk filesystem size (size * count) must be at least 120GB. Current: ${var.pi_oravg_volume.size}GB * ${var.pi_oravg_volume.count} = ${tonumber(var.pi_oravg_volume.size) * tonumber(var.pi_oravg_volume.count)}GB"
+  }
 }
 
 variable "pi_data_volume" {

@@ -64,7 +64,7 @@ variable "pi_aix_image_name" {
 }
 
 variable "pi_aix_instance" {
-  description = "Configuration for the IBM PowerVS AIX instance where Oracle RAC will be installed. This configuration is applied to each RAC node. Fields: memory_gb (RAM in GB), cores (number of virtual processors), core_type (shared | capped | dedicated), machine_type (e.g., s1022 or e980), pin_policy (hard | soft), health_status (OK | Warning | Critical)."
+  description = "Configuration for the IBM PowerVS AIX instance where Oracle RAC will be installed. This configuration is applied to each RAC node. Fields: memory_gb (RAM in GB, minimum 24GB), cores (number of virtual processors), core_type (shared | capped | dedicated), machine_type (e.g., s1022 or e980), pin_policy (hard | soft), health_status (OK | Warning | Critical)."
   type = object({
     memory_gb     = number
     cores         = optional(number)
@@ -73,6 +73,20 @@ variable "pi_aix_instance" {
     pin_policy    = string
     health_status = string
   })
+
+  validation {
+    condition     = var.pi_aix_instance.memory_gb >= 24
+    error_message = "AIX instance memory_gb must be at least 24GB. Current value: ${var.pi_aix_instance.memory_gb}GB"
+  }
+
+  validation {
+    condition = (
+      var.pi_aix_instance.cores == null ? true :
+      var.deployment_type == "public" ? var.pi_aix_instance.cores >= 0.25 :
+      var.pi_aix_instance.cores >= 0.2
+    )
+    error_message = "AIX RAC instance cores must be at least 0.25 for public deployment or 0.2 for private deployment. Current: ${coalesce(var.pi_aix_instance.cores, "not specified")} for ${var.deployment_type}"
+  }
 }
 
 variable "pi_replication_policy" {
@@ -134,6 +148,11 @@ variable "pi_oravg_volume" {
     count = string
     tier  = string
   })
+
+  validation {
+    condition     = tonumber(var.pi_oravg_volume.size) * tonumber(var.pi_oravg_volume.count) >= 120
+    error_message = "Total Oracle Binary disk filesystem size (size * count) must be at least 120GB. Current: ${var.pi_oravg_volume.size}GB * ${var.pi_oravg_volume.count} = ${tonumber(var.pi_oravg_volume.size) * tonumber(var.pi_oravg_volume.count)}GB"
+  }
 }
 
 variable "pi_data_volume" {

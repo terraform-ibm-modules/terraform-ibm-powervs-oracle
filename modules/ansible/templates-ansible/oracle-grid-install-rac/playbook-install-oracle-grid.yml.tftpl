@@ -62,7 +62,7 @@
         asm_data_diskgroup_disk: "{{ discovered_disks.DATA }}"
         asm_redo_diskgroup_disk: "{{ discovered_disks.REDO }}"
         ora_gimr_diskgroup_disk: "{{ discovered_disks.GIMR }}"
-        arch_local_disks:        "{{ discovered_disks.ARCH }}"
+        local_disk_devices:      "{{ discovered_disks.ARCH }}"
 
     - name: Debug discovered disks
       ansible.builtin.debug:
@@ -110,7 +110,7 @@
         redo_new_disk_string:  "{{ disk_num_raw.results[3].stdout_lines | map('split',' ') | map(attribute=1) | join(' ') }}"
         arch_disk_string:      "{{ disk_num_raw.results[4].stdout_lines | map('split',' ') | map(attribute=0) | join(' ') }}"
         arch_new_disk_string:  "{{ disk_num_raw.results[4].stdout_lines | map('split',' ') | map(attribute=1) | join(' ') }}"
-        arch_local_disks:      "{{ disk_num_raw.results[4].stdout_lines | map('split',' ') | map(attribute=1) | map('regex_replace', '^', 'hdiskAR') | list }}"
+        local_disk_devices:    "{{ disk_num_raw.results[4].stdout_lines | map('split',' ') | map(attribute=1) | map('regex_replace', '^', 'hdiskAR') | list }}"
         arch_rename_pairs:     "{{ disk_num_raw.results[4].stdout_lines | map('split',' ') | list }}"
 
     - name: Debug — correlated disk number mapping
@@ -203,6 +203,52 @@
             mode: '0644'
           when: not arch_rename_done.stat.exists
 
+    #######################################################
+    # Standardize max_transfer on root and ARCH disks
+    #######################################################
+    - name: Standardize max_transfer on local disks
+      block:
+        - name: Check if local disk max_transfer tuning already done
+          ansible.builtin.stat:
+            path: "{{ done_file_dir }}/local_disk_max_transfer.done"
+          register: local_disk_max_transfer_done
+
+        - name: Apply max_transfer=0x100000 to local disks
+          ansible.builtin.shell: |
+            current_value=$(lsattr -El {{ item }} -a max_transfer 2>/dev/null | awk '{print $2}')
+            if [ "$current_value" = "0x100000" ]; then
+              echo "SKIP: {{ item }} already set to 0x100000"
+            else
+              chdev -P -l {{ item }} -a max_transfer=0x100000
+              echo "UPDATED: {{ item }} max_transfer=0x100000"
+            fi
+          loop: "{{ local_disk_devices | default([]) }}"
+          register: local_disk_max_transfer_result
+          changed_when: "'UPDATED' in local_disk_max_transfer_result.stdout"
+          when:
+            - not local_disk_max_transfer_done.stat.exists
+            - (local_disk_devices | default([]) | length) > 0
+
+        - name: Verify max_transfer on local disks
+          ansible.builtin.shell: |
+            lsattr -El {{ item }} -a max_transfer | awk '{print $2}'
+          loop: "{{ local_disk_devices | default([]) }}"
+          register: local_disk_max_transfer_verify
+          changed_when: false
+          failed_when: local_disk_max_transfer_verify.stdout != "0x100000"
+          when:
+            - not local_disk_max_transfer_done.stat.exists
+            - (local_disk_devices | default([]) | length) > 0
+
+        - name: Mark local disk max_transfer tuning complete on this node
+          ansible.builtin.file:
+            path: "{{ done_file_dir }}/local_disk_max_transfer.done"
+            state: touch
+            mode: '0644'
+          when:
+            - not local_disk_max_transfer_done.stat.exists
+            - (local_disk_devices | default([]) | length) > 0
+
 
   roles:
     - role: ibm.power_aix_oracle_rac_asm.bootstrap
@@ -235,7 +281,7 @@
         - name: Create archvg Volume Group on this node
           ibm.power_aix.lvg:
             vg_name: archvg
-            pvs: "{{ arch_local_disks }}"
+            pvs: "{{ local_disk_devices }}"
             vg_type: scalable
             pp_size: 512
             state: present
@@ -245,11 +291,11 @@
         - name: Calculate MAX LV PP for archvg on this node
           ansible.builtin.shell: |
             min_pp=999999
-            for d in {{ arch_local_disks | join(' ') }}; do
+            for d in {{ local_disk_devices | join(' ') }}; do
               pp=$(lspv $d | grep "FREE PPs" | awk '{print $3}')
               if [ $pp -lt $min_pp ]; then min_pp=$pp; fi
             done
-            echo $((min_pp * {{ arch_local_disks | length }}))
+            echo $((min_pp * {{ local_disk_devices | length }}))
           args:
             executable: /bin/ksh
           register: arch_max_pp
@@ -263,9 +309,9 @@
               echo "LV archlv already exists"; exit 0
             fi
             mklv -S 2M -t jfs2 -y archlv -c 1 \
-                 -C {{ arch_local_disks | length }} \
+                 -C {{ local_disk_devices | length }} \
                  archvg {{ arch_max_pp.stdout | int }} \
-                 {{ arch_local_disks | join(' ') }}
+                 {{ local_disk_devices | join(' ') }}
           args:
             executable: /bin/ksh
           register: arch_lv_result
@@ -275,7 +321,7 @@
             - "'already exists' not in arch_lv_result.stdout"
           when: not arch_jfs2_done.stat.exists
 
-        # crfs -v jfs2 -d archlv -m /oraarchlogs -A yes -p rw -a log=INLINE -a noatime=yes -a agblksize=512 && mount /oraarchlogs
+        # crfs -v jfs2 -d archlv -m /oraarchlogs -A yes -p rw -a log=INLINE -a noatime=yes -a agblksize=4096 && mount /oraarchlogs
         - name: Create and mount /oraarchlogs filesystem on this node
           ansible.builtin.shell: |
             if lsfs | grep -q "^/oraarchlogs:"; then
@@ -283,7 +329,7 @@
             fi
             crfs -v jfs2 -d archlv -m /oraarchlogs \
                  -A yes -p rw -a log=INLINE \
-                 -a noatime=yes -a agblksize=512
+                 -a noatime=yes -a agblksize=4096
             mount /oraarchlogs
           args:
             executable: /bin/ksh
@@ -324,6 +370,59 @@
       tags: oracle_createdb
 
   post_tasks:
+    ##############################################################
+    # Standardize queue_depth on all RAC disks after install
+    ##############################################################
+    - name: Standardize queue_depth on all RAC disks
+      block:
+        - name: Check if RAC queue_depth tuning already done
+          ansible.builtin.stat:
+            path: "{{ done_file_dir }}/rac_queue_depth.done"
+          register: rac_queue_depth_done
+
+        - name: Get all hdisk devices
+          ansible.builtin.shell: |
+            lsdev -Cc disk | awk '{print $1}'
+          register: rac_hdisk_list
+          changed_when: false
+          when: not rac_queue_depth_done.stat.exists
+
+        - name: Apply queue_depth=64 to all RAC disks
+          ansible.builtin.shell: |
+            current_value=$(lsattr -El {{ item }} -a queue_depth 2>/dev/null | awk '{print $2}')
+            if [ "$current_value" = "64" ]; then
+              echo "SKIP: {{ item }} already set to 64"
+            else
+              chdev -l {{ item }} -a queue_depth=64 -U
+              echo "UPDATED: {{ item }} queue_depth=64"
+            fi
+          loop: "{{ rac_hdisk_list.stdout_lines | default([]) }}"
+          register: rac_queue_depth_result
+          changed_when: "'UPDATED' in rac_queue_depth_result.stdout"
+          when:
+            - not rac_queue_depth_done.stat.exists
+            - (rac_hdisk_list.stdout_lines | default([]) | length) > 0
+
+        - name: Verify queue_depth on all RAC disks
+          ansible.builtin.shell: |
+            lsattr -El {{ item }} -a queue_depth | awk '{print $2}'
+          loop: "{{ rac_hdisk_list.stdout_lines | default([]) }}"
+          register: rac_queue_depth_verify
+          changed_when: false
+          failed_when: rac_queue_depth_verify.stdout != "64"
+          when:
+            - not rac_queue_depth_done.stat.exists
+            - (rac_hdisk_list.stdout_lines | default([]) | length) > 0
+
+        - name: Mark RAC queue_depth tuning complete on this node
+          ansible.builtin.file:
+            path: "{{ done_file_dir }}/rac_queue_depth.done"
+            state: touch
+            mode: '0644'
+          when:
+            - not rac_queue_depth_done.stat.exists
+            - (rac_hdisk_list.stdout_lines | default([]) | length) > 0
+
     ##############################################################
     # Lock ASM disks (CRSDG + GIMR + DATA + REDO)
     ##############################################################
