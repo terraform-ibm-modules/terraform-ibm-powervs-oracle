@@ -62,14 +62,13 @@
       "flavors": [
         {
           "label": "Oracle Database – Single Instance (SI)",
-          "name": "oracle-ready-to-go",
+          "name": "oracle-single-instance",
           "short_description": "Deploy Oracle Single Instance on IBM PowerVS",
           "install_type": "fullstack",
-          "index": 1,
           "working_directory": "solutions/oracle/si",
           "compliance": {
             "authority": "",
-            "profiles": []
+            "controls": []
           },
           "dependencies": [],
           "configuration": [
@@ -308,11 +307,13 @@
               "value_constraints": [
                 {
                   "type": "regex",
-                  "value": "^[A-Za-z_]+[A-Za-z0-9_]+$"
+                  "value": "^[A-Za-z_]+[A-Za-z0-9_]+$",
+                  "description": "Oracle Database name (SID) should contain 3 characters"
                 },
                 {
                   "type": "regex",
-                  "value": "^.{3,8}$"
+                  "value": "^.{3,8}$",
+                  "description": "should not exceed 8 characters."
                 }
               ]
             },
@@ -383,7 +384,8 @@
                 "cos_oracle_grid_sw_path": "",
                 "cos_oracle_ru_file_path": "p37641958_190000_AIX64-5L.zip",
                 "cos_oracle_opatch_file_path": "p6880880_190000_AIX64-5L.zip"
-              }
+              },
+              "type": "object"
             },
             {
               "key": "pi_aix_instance",
@@ -402,7 +404,8 @@
                 "machine_type": "s1022",
                 "pin_policy": "hard",
                 "health_status": "OK"
-              }
+              },
+              "type": "object"
             },
             {
               "key": "pi_oravg_volume",
@@ -418,7 +421,8 @@
                 "size": "100",
                 "count": "2",
                 "tier": "tier1"
-              }
+              },
+              "type": "object"
             },
             {
               "key": "pi_data_volume",
@@ -433,7 +437,8 @@
                 "size": "5",
                 "count": "8",
                 "tier": "tier1"
-              }
+              },
+              "type": "object"
             },
             {
               "key": "pi_redo_volume",
@@ -448,7 +453,8 @@
                 "size": "2",
                 "count": "4",
                 "tier": "tier5k"
-              }
+              },
+              "type": "object"
             },
             {
               "key": "redolog_size_in_mb",
@@ -522,18 +528,20 @@
               }
             ]
           },
-          "terraform_version": "1.10.5"
+          "terraform_version": "1.10.5",
+          "schematics_env_values": {
+            "value": "[{\"name\": \"API_DATA_IS_SENSITIVE\",\"value\": \"true\",\"secure\": false,\"hidden\": true}]"
+          }
         },
         {
           "label": "Oracle Database – Real Application Clusters (RAC)",
           "name": "oracle-real-application-cluster",
           "short_description": "Deploy Oracle RAC Database on IBM PowerVS",
           "install_type": "fullstack",
-          "index": 2,
           "working_directory": "solutions/oracle/rac",
           "compliance": {
             "authority": "",
-            "profiles": []
+            "controls": []
           },
           "dependencies": [],
           "configuration": [
@@ -939,11 +947,13 @@
               "value_constraints": [
                 {
                   "type": "regex",
-                  "value": "^[A-Za-z_]+[A-Za-z0-9_]+$"
+                  "value": "^[A-Za-z_]+[A-Za-z0-9_]+$",
+                  "description": "Oracle Database name (SID) should contain 3 characters"
                 },
                 {
                   "type": "regex",
-                  "value": "^.{3,8}$"
+                  "value": "^.{3,8}$",
+                  "description": "should not exceed 8 characters."
                 }
               ]
             },
@@ -997,7 +1007,8 @@
                 "cos_oracle_ru_file_path": "p37641958_190000_AIX64-5L.zip",
                 "cos_oracle_opatch_file_path": "p6880880_190000_AIX64-5L.zip",
                 "cos_oracle_cluvfy_file_path": "cvupack_aix_7_ppc64.zip"
-              }
+              },
+              "type": "object"
             },
             {
               "key": "pi_aix_instance",
@@ -1016,7 +1027,8 @@
                 "machine_type": "s1022",
                 "pin_policy": "hard",
                 "health_status": "OK"
-              }
+              },
+              "type": "object"
             },
             {
               "key": "pi_oravg_volume",
@@ -1032,7 +1044,8 @@
                 "size": "100",
                 "count": "2",
                 "tier": "tier1"
-              }
+              },
+              "type": "object"
             },
             {
               "key": "pi_data_volume",
@@ -1047,7 +1060,8 @@
                 "size": "5",
                 "count": "8",
                 "tier": "tier1"
-              }
+              },
+              "type": "object"
             },
             {
               "key": "pi_redo_volume",
@@ -1062,7 +1076,8 @@
                 "size": "2",
                 "count": "4",
                 "tier": "tier5k"
-              }
+              },
+              "type": "object"
             },
             {
               "key": "redolog_size_in_mb",
@@ -1079,62 +1094,35 @@
               "default_value": "[\"tag-001\", \"tag-002\"]"
             }
           ],
-          "scripts": [],
           "iam_permissions": [
             {
+              "service_name": "schematics",
               "role_crns": [
-                "crn:v1:bluemix:public:iam::::serviceRole:Manager"
-              ],
-              "service_name": "appid"
+                "crn:v1:bluemix:public:iam::::role:Editor",
+                "crn:v1:bluemix:public:iam::::role:Manager"
+              ]
             },
             {
+              "service_name": "power-iaas",
               "role_crns": [
-                "crn:v1:bluemix:public:iam::::serviceRole:Manager"
-              ],
-              "service_name": "cloud-object-storage"
+                "crn:v1:bluemix:public:iam::::role:Editor",
+                "crn:v1:bluemix:public:iam::::role:Viewer",
+                "crn:v1:bluemix:public:iam::::role:Manager"
+              ]
             },
             {
-              "role_crns": [
-                "crn:v1:bluemix:public:iam::::serviceRole:Manager"
-              ],
-              "service_name": "hs-crypto"
-            },
-            {
-              "role_crns": [
-                "crn:v1:bluemix:public:iam::::role:Administrator"
-              ],
-              "service_name": "iam-identity"
-            },
-            {
-              "role_crns": [
-                "crn:v1:bluemix:public:iam::::serviceRole:Manager"
-              ],
-              "service_name": "kms"
-            },
-            {
+              "service_name": "cloud-object-storage",
               "role_crns": [
                 "crn:v1:bluemix:public:iam::::serviceRole:Manager",
-                "crn:v1:bluemix:public:iam::::role:Administrator"
-              ],
-              "service_name": "is.vpc"
+                "crn:v1:bluemix:public:iam::::role:Writer"
+              ]
             },
             {
+              "service_name": "resource-group",
               "role_crns": [
+                "crn:v1:bluemix:public:iam::::role:Viewer",
                 "crn:v1:bluemix:public:iam::::role:Editor"
-              ],
-              "service_name": "is.vpc"
-            },
-            {
-              "role_crns": [
-                "crn:v1:bluemix:public:iam::::role:Editor"
-              ],
-              "service_name": "transit.gateway"
-            },
-            {
-              "role_crns": [
-                "crn:v1:bluemix:public:iam::::serviceRole:Manager"
-              ],
-              "service_name": "power-iaas"
+              ]
             }
           ],
           "architecture": {
@@ -1159,7 +1147,985 @@
               }
             ]
           },
-          "terraform_version": "1.10.5"
+          "terraform_version": "1.10.5",
+          "schematics_env_values": {
+            "value": "[{\"name\": \"API_DATA_IS_SENSITIVE\",\"value\": \"true\",\"secure\": false,\"hidden\": true}]"
+          }
+        },
+        {
+          "label": "Oracle Database – Single Instance One Click",
+          "name": "oracle-si-one-click",
+          "short_description": "Fully automated Oracle SI deployment with VPC landing zone",
+          "install_type": "fullstack",
+          "working_directory": "solutions/oracle/si-ready-to-go",
+          "compliance": {
+            "authority": "",
+            "controls": []
+          },
+          "dependencies": [],
+          "configuration": [
+            {
+              "key": "ibmcloud_api_key",
+              "display_name": "IBM Cloud API Key",
+              "type": "multiline_secure_value",
+              "required": true,
+              "custom_config": {
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "multiline_secure_value"
+              }
+            },
+            {
+              "key": "prefix",
+              "display_name": "Resource Name Prefix",
+              "default_value": "",
+              "type": "string",
+              "required": true,
+              "value_constraints": [
+                {
+                  "type": "regex",
+                  "value": "^[a-zA-Z0-9-]{1,5}$",
+                  "description": "The prefix shall be between 1 to 5 characters and allows only alpha-numeric and hyphen characters"
+                }
+              ]
+            },
+            {
+              "key": "powervs_zone",
+              "display_name": "PowerVS Zone",
+              "type": "string",
+              "required": true,
+              "default_value": "",
+              "description": "IBM Cloud data center location where IBM PowerVS infrastructure will be created (e.g., dal10, eu-de-1, lon04). The VPC region is derived automatically from this zone. See all available zones at [IBM PowerVS Cloud Regions](https://www.ibm.com/docs/en/power-virtual-server?topic=locations-cloud-regions)"
+            },
+            {
+              "key": "powervs_resource_group_name",
+              "type": "string",
+              "default_value": "Default",
+              "required": false,
+              "custom_config": {
+                "config_constraints": {
+                  "identifier": "rg_name"
+                },
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "resource_group"
+              }
+            },
+            {
+              "key": "pi_user_tags",
+              "display_name": "Resource Tags",
+              "required": false,
+              "type": "string",
+              "default_value": "[\"tag-001\", \"tag-002\"]"
+            },
+            {
+              "key": "powervs_oracle_network_cidr",
+              "display_name": "Oracle Network CIDR",
+              "type": "string",
+              "default_value": "10.51.0.0/24",
+              "required": false
+            },
+            {
+              "key": "external_access_ip",
+              "display_name": "External Access IP (CIDR)",
+              "type": "string",
+              "default_value": "0.0.0.0/0",
+              "required": true,
+              "description": "Source IP/CIDR for SSH access. Use your public IP for security (e.g., 203.0.113.5/32). The default value 0.0.0.0/0 makes the resources publicly accessible."
+            },
+            {
+              "key": "ssh_public_key",
+              "display_name": "SSH Public Key",
+              "type": "string",
+              "required": true,
+              "description": "Public SSH key (RSA format) for VSI access"
+            },
+            {
+              "key": "ssh_private_key",
+              "display_name": "SSH Private Key",
+              "type": "multiline_secure_value",
+              "required": true,
+              "description": "Private SSH key for Ansible automation",
+              "custom_config": {
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "multiline_secure_value"
+              }
+            },
+            {
+              "key": "pi_aix_image_name",
+              "display_name": "AIX OS Image Name",
+              "type": "string",
+              "default_value": "7300-04-00",
+              "required": false,
+              "options": [
+                {
+                  "displayname": "7200-05-11",
+                  "value": "7200-05-11"
+                },
+                {
+                  "displayname": "7300-03-01",
+                  "value": "7300-03-01"
+                },
+                {
+                  "displayname": "7300-04-00",
+                  "value": "7300-04-00"
+                },
+                {
+                  "displayname": "7300-03-02",
+                  "value": "7300-03-02"
+                }
+              ]
+            },
+            {
+              "key": "pi_aix_instance",
+              "display_name": "AIX Instance Configuration(CPU,Mem)",
+              "description": "Configuration for the IBM PowerVS AIX instance where Oracle Database will be installed. IMPORTANT: memory_gb must be at least 16GB. Fields: memory_gb (RAM in GB, minimum 16GB required), cores (number of virtual processors), core_type (shared | capped | dedicated), machine_type (e.g., s1022 or e980), pin_policy (hard | soft), health_status (OK | Warning | Critical).",
+              "required": false,
+              "custom_config": {
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "json_editor"
+              },
+              "default_value": {
+                "memory_gb": "16",
+                "cores": null,
+                "core_type": "shared",
+                "machine_type": "s1022",
+                "pin_policy": "hard",
+                "health_status": "OK"
+              },
+              "type": "object"
+            },
+            {
+              "key": "oracle_install_type",
+              "display_name": "Storage Type",
+              "type": "string",
+              "default_value": "ASM",
+              "required": true,
+              "options": [
+                {
+                  "displayname": "ASM (Automatic Storage Management)",
+                  "value": "ASM"
+                },
+                {
+                  "displayname": "JFS2 (Journal File System)",
+                  "value": "JFS2"
+                }
+              ]
+            },
+            {
+              "key": "pi_oravg_volume",
+              "display_name": "Oracle Software Binary Disks",
+              "description": "Disk configuration for the Oracle software volume group (oravg). Total filesystem size (size × count) must be at least 120GB to accommodate Oracle binaries, patches, and Grid Infrastructure. Fields: size (disk size in GB), count (number of disks), tier (storage tier, e.g., tier1 or tier3). Example: size=100GB × count=2 = 200GB total.",
+              "required": false,
+              "custom_config": {
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "json_editor"
+              },
+              "default_value": {
+                "size": "100",
+                "count": "2",
+                "tier": "tier1"
+              },
+              "type": "object"
+            },
+            {
+              "key": "pi_data_volume",
+              "display_name": "Database Data Disks",
+              "required": false,
+              "custom_config": {
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "json_editor"
+              },
+              "default_value": {
+                "size": "5",
+                "count": "8",
+                "tier": "tier1"
+              },
+              "type": "object"
+            },
+            {
+              "key": "pi_redo_volume",
+              "display_name": "Redo Log Disks",
+              "required": false,
+              "custom_config": {
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "json_editor"
+              },
+              "default_value": {
+                "size": "2",
+                "count": "4",
+                "tier": "tier5k"
+              },
+              "type": "object"
+            },
+            {
+              "key": "ora_sid",
+              "display_name": "Oracle Database Name (SID)",
+              "type": "string",
+              "default_value": "",
+              "required": true,
+              "value_constraints": [
+                {
+                  "type": "regex",
+                  "value": "^[A-Za-z_]+[A-Za-z0-9_]+$",
+                  "description": "Oracle Database name (SID) should contain 3 characters"
+                },
+                {
+                  "type": "regex",
+                  "value": "^.{3,8}$",
+                  "description": "should not exceed 8 characters."
+                }
+              ]
+            },
+            {
+              "key": "ora_db_password",
+              "display_name": "Oracle SYS Password",
+              "description": "Password for Oracle database administrative users (SYS, SYSTEM). Password must be 8-30 characters long and contain at least one uppercase letter, one lowercase letter, one digit, and one special character.",
+              "default_value": "",
+              "type": "password",
+              "required": true,
+              "value_constraints": [
+                {
+                  "type": "regex",
+                  "value": "^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).+$",
+                  "description": "Password must contain at least one uppercase letter, one lowercase letter, one digit, and one special character"
+                },
+                {
+                  "type": "regex",
+                  "value": "^.{8,30}$",
+                  "description": "Password must be between 8 and 30 characters"
+                }
+              ],
+              "custom_config": {}
+            },
+            {
+              "key": "redolog_size_in_mb",
+              "display_name": "Redo log member size (MB)",
+              "type": "string",
+              "required": false,
+              "default_value": "1024"
+            },
+            {
+              "key": "ibmcloud_cos_service_credentials",
+              "type": "multiline_secure_value",
+              "display_name": "Cloud Object Storage Credentials",
+              "required": true,
+              "description": "IBM Cloud Object Storage service credentials in JSON format",
+              "custom_config": {
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "multiline_secure_value"
+              },
+              "default_value": "{\"apikey\":\"your-cos-apikey\",\"endpoints\":\"https://control.cloud-object-storage.cloud.ibm.com/v2/endpoints\",\"resource_instance_id\":\"crn:v1:bluemix:public:cloud-object-storage:global:a/your-account-id:your-instance-id::\"}"
+            },
+            {
+              "key": "ibmcloud_cos_configuration",
+              "display_name": "COS Oracle Software Configuration",
+              "required": true,
+              "custom_config": {
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "json_editor"
+              },
+              "default_value": {
+                "cos_region": "us-south",
+                "cos_bucket_name": "oracle-sw-bucket",
+                "cos_oracle_database_sw_path": "V982583-01_193000_db.zip",
+                "cos_oracle_grid_sw_path": "V982588-01_193000_grid.zip",
+                "cos_oracle_ru_file_path": "p37641958_190000_AIX64-5L.zip",
+                "cos_oracle_opatch_file_path": "p6880880_190000_AIX64-5L.zip"
+              },
+              "type": "object"
+            },
+            {
+              "key": "nfs_server_config",
+              "display_name": "NFS Server Configuration",
+              "required": false,
+              "custom_config": {
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "json_editor"
+              },
+              "default_value": {
+                "size": 200,
+                "iops": 600,
+                "mount_path": "/nfs"
+              },
+              "type": "object"
+            },
+            {
+              "key": "client_to_site_vpn",
+              "display_name": "Client-to-Site VPN Configuration",
+              "required": false,
+              "custom_config": {
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "json_editor"
+              },
+              "default_value": {
+                "enable": false,
+                "client_ip_pool": "192.168.0.0/16",
+                "vpn_client_access_group_users": []
+              },
+              "type": "object"
+            },
+            {
+              "key": "vpc_subnet_cidrs",
+              "display_name": "VPC Subnet CIDRs",
+              "type": "object",
+              "description": "CIDR values for the VPC subnets to be created. It is customer responsibility that none of the defined networks collide, including the PowerVS subnets and VPN client pool. Refer to [Power Virtual Server Landing Zone](https://cloud.ibm.com/docs/powervs-vpc?topic=powervs-vpc-landing-zone-preset).",
+              "required": false,
+              "custom_config": {
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "json_editor"
+              },
+              "default_value": {
+                "vpn": "10.10.10.0/24",
+                "mgmt": "10.20.10.0/24",
+                "vpe": "10.30.10.0/24",
+                "edge": "10.40.10.0/24"
+              }
+            },
+            {
+              "key": "vpc_intel_images",
+              "display_name": "VPC Intel VSI OS Images",
+              "type": "object",
+              "description": "Stock OS image names for creating VPC landing zone VSI instances: RHEL (management and network services) and SLES (monitoring). Refer to [Stock Images](https://cloud.ibm.com/infrastructure/compute/stockImages) for the list of available images.",
+              "required": false,
+              "custom_config": {
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "json_editor"
+              },
+              "default_value": {
+                "rhel_image": "ibm-redhat-9-4-amd64-sap-applications-5",
+                "sles_image": "ibm-sles-15-6-amd64-sap-applications-3"
+              }
+            },
+            {
+              "key": "sm_service_plan",
+              "display_name": "Secrets Manager Service Plan",
+              "type": "string",
+              "description": "Service plan for a new Secrets Manager instance. Only used when existing_sm_instance_guid is not set.",
+              "required": false,
+              "default_value": "standard",
+              "options": [
+                {
+                  "displayname": "Standard",
+                  "value": "standard"
+                },
+                {
+                  "displayname": "Trial",
+                  "value": "trial"
+                }
+              ]
+            },
+            {
+              "key": "existing_sm_instance_guid",
+              "display_name": "Existing Secrets Manager GUID",
+              "type": "string",
+              "description": "GUID of an existing Secrets Manager instance. Leave blank to provision a new one.",
+              "required": false,
+              "default_value": "__NULL__"
+            },
+            {
+              "key": "existing_sm_instance_region",
+              "display_name": "Existing Secrets Manager Region",
+              "type": "string",
+              "description": "Region of the existing Secrets Manager instance. Required only when existing_sm_instance_guid is provided.",
+              "required": false,
+              "default_value": "__NULL__"
+            }
+          ],
+          "iam_permissions": [
+            {
+              "service_name": "schematics",
+              "role_crns": [
+                "crn:v1:bluemix:public:iam::::role:Editor",
+                "crn:v1:bluemix:public:iam::::role:Manager"
+              ]
+            },
+            {
+              "service_name": "power-iaas",
+              "role_crns": [
+                "crn:v1:bluemix:public:iam::::serviceRole:Manager"
+              ]
+            },
+            {
+              "service_name": "is.vpc",
+              "role_crns": [
+                "crn:v1:bluemix:public:iam::::serviceRole:Manager",
+                "crn:v1:bluemix:public:iam::::role:Administrator"
+              ]
+            },
+            {
+              "service_name": "transit.gateway",
+              "role_crns": [
+                "crn:v1:bluemix:public:iam::::role:Editor"
+              ]
+            },
+            {
+              "service_name": "cloud-object-storage",
+              "role_crns": [
+                "crn:v1:bluemix:public:iam::::serviceRole:Manager",
+                "crn:v1:bluemix:public:iam::::role:Writer"
+              ]
+            },
+            {
+              "service_name": "resource-group",
+              "role_crns": [
+                "crn:v1:bluemix:public:iam::::role:Viewer",
+                "crn:v1:bluemix:public:iam::::role:Editor"
+              ]
+            }
+          ],
+          "architecture": {
+            "features": [
+              {
+                "title": "Fully Automated Deployment",
+                "description": "Complete infrastructure and Oracle installation with VPC landing zone integration"
+              },
+              {
+                "title": "Production-Ready Architecture",
+                "description": "Two-VSI design with management bastion and network services (SQUID, DNS, NTP, NFS)"
+              },
+              {
+                "title": "Flexible Storage Options",
+                "description": "Choose between ASM or JFS2 for Oracle database storage"
+              }
+            ],
+            "diagrams": [
+              {
+                "diagram": {
+                  "caption": "Oracle SI One Click on Power Virtual Server with VPC Landing Zone",
+                  "url": "https://raw.githubusercontent.com/nava-dba/terraform-ibm-oracle-powervs-da/e885e2ef72d5370c1f49e99019806f75e7cb9743/images/Oracle_DA_SI_FA.svg",
+                  "type": "image/svg+xml"
+                },
+                "description": "This fully automated deployable architecture provisions Oracle Database Single Instance on IBM Power Virtual Server with complete VPC landing zone integration. It creates VPC infrastructure, PowerVS workspace, network services (SQUID proxy, DNS, NTP, NFS), and deploys Oracle Database 19c on AIX with automated installation via Ansible."
+              }
+            ]
+          },
+          "terraform_version": "1.10.5",
+          "schematics_env_values": {
+            "value": "[{\"name\": \"API_DATA_IS_SENSITIVE\",\"value\": \"true\",\"secure\": false,\"hidden\": true}]"
+          }
+        },
+        {
+          "label": "Oracle Database – RAC One Click",
+          "name": "oracle-rac-one-click",
+          "short_description": "Fully automated Oracle RAC deployment with VPC landing zone",
+          "install_type": "fullstack",
+          "working_directory": "solutions/oracle/rac-ready-to-go",
+          "compliance": {
+            "authority": "",
+            "controls": []
+          },
+          "dependencies": [],
+          "configuration": [
+            {
+              "key": "ibmcloud_api_key",
+              "display_name": "IBM Cloud API Key",
+              "type": "multiline_secure_value",
+              "required": true,
+              "custom_config": {
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "multiline_secure_value"
+              }
+            },
+            {
+              "key": "prefix",
+              "display_name": "Resource Name Prefix",
+              "default_value": "",
+              "type": "string",
+              "required": true,
+              "value_constraints": [
+                {
+                  "type": "regex",
+                  "value": "^[a-zA-Z0-9-]{1,5}$",
+                  "description": "The prefix shall be between 1 to 5 characters and allows only alpha-numeric and hyphen characters"
+                }
+              ]
+            },
+            {
+              "key": "powervs_zone",
+              "display_name": "PowerVS Zone",
+              "type": "string",
+              "required": true,
+              "default_value": "",
+              "description": "IBM Cloud data center location where IBM PowerVS infrastructure will be created (e.g., dal10, eu-de-1, lon04). The VPC region is derived automatically from this zone."
+            },
+            {
+              "key": "powervs_resource_group_name",
+              "type": "string",
+              "default_value": "Default",
+              "required": false,
+              "custom_config": {
+                "config_constraints": {
+                  "identifier": "rg_name"
+                },
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "resource_group"
+              }
+            },
+            {
+              "key": "pi_user_tags",
+              "display_name": "Resource Tags",
+              "required": false,
+              "type": "string",
+              "default_value": "[\"tag-001\", \"tag-002\"]"
+            },
+            {
+              "key": "powervs_management_network_cidr",
+              "display_name": "Management Network CIDR",
+              "type": "string",
+              "default_value": "10.51.0.0/24",
+              "required": false
+            },
+            {
+              "key": "external_access_ip",
+              "display_name": "External Access IP (CIDR)",
+              "type": "string",
+              "default_value": "0.0.0.0/0",
+              "required": true,
+              "description": "Source IP/CIDR for SSH access. Use your public IP for security (e.g., 203.0.113.5/32)"
+            },
+            {
+              "key": "ssh_public_key",
+              "display_name": "SSH Public Key",
+              "type": "string",
+              "required": true,
+              "description": "Public SSH key (RSA format) for VSI access"
+            },
+            {
+              "key": "ssh_private_key",
+              "display_name": "SSH Private Key",
+              "type": "multiline_secure_value",
+              "required": true,
+              "description": "Private SSH key for Ansible automation",
+              "custom_config": {
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "multiline_secure_value"
+              }
+            },
+            {
+              "key": "rac_nodes",
+              "display_name": "Number of RAC Nodes",
+              "type": "int",
+              "default_value": 2,
+              "required": false,
+              "options": [
+                {
+                  "displayname": "2 Nodes",
+                  "value": 2
+                },
+                {
+                  "displayname": "3 Nodes",
+                  "value": 3
+                },
+                {
+                  "displayname": "4 Nodes",
+                  "value": 4
+                }
+              ]
+            },
+            {
+              "key": "pi_replication_policy",
+              "display_name": "RAC Node Placement Policy",
+              "type": "string",
+              "default_value": "anti-affinity",
+              "required": false,
+              "options": [
+                {
+                  "displayname": "Anti-affinity (Recommended for HA)",
+                  "value": "anti-affinity"
+                },
+                {
+                  "displayname": "Affinity",
+                  "value": "affinity"
+                },
+                {
+                  "displayname": "None",
+                  "value": "none"
+                }
+              ]
+            },
+            {
+              "key": "pi_aix_image_name",
+              "display_name": "AIX OS Image Name",
+              "type": "string",
+              "default_value": "7300-04-00",
+              "required": false,
+              "options": [
+                {
+                  "displayname": "7200-05-11",
+                  "value": "7200-05-11"
+                },
+                {
+                  "displayname": "7300-03-01",
+                  "value": "7300-03-01"
+                },
+                {
+                  "displayname": "7300-04-00",
+                  "value": "7300-04-00"
+                },
+                {
+                  "displayname": "7300-03-02",
+                  "value": "7300-03-02"
+                }
+              ]
+            },
+            {
+              "key": "pi_aix_instance",
+              "display_name": "AIX Instance Configuration(CPU,Mem)",
+              "description": "Configuration for the IBM PowerVS AIX instance where Oracle Database will be installed. IMPORTANT: memory_gb must be at least 16GB. Fields: memory_gb (RAM in GB, minimum 16GB required), cores (number of virtual processors), core_type (shared | capped | dedicated), machine_type (e.g., s1022 or e980), pin_policy (hard | soft), health_status (OK | Warning | Critical).",
+              "required": false,
+              "custom_config": {
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "json_editor"
+              },
+              "default_value": {
+                "memory_gb": "16",
+                "cores": null,
+                "core_type": "shared",
+                "machine_type": "s1022",
+                "pin_policy": "hard",
+                "health_status": "OK"
+              },
+              "type": "object"
+            },
+            {
+              "key": "pi_oravg_volume",
+              "display_name": "Oracle Software Binary Disks",
+              "description": "Disk configuration for the Oracle software volume group (oravg). Total filesystem size (size × count) must be at least 120GB to accommodate Oracle binaries, patches, and Grid Infrastructure. Fields: size (disk size in GB), count (number of disks), tier (storage tier, e.g., tier1 or tier3). Example: size=100GB × count=2 = 200GB total.",
+              "required": false,
+              "custom_config": {
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "json_editor"
+              },
+              "default_value": {
+                "size": "100",
+                "count": "2",
+                "tier": "tier1"
+              },
+              "type": "object"
+            },
+            {
+              "key": "pi_data_volume",
+              "display_name": "Database Data Disks",
+              "required": false,
+              "custom_config": {
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "json_editor"
+              },
+              "default_value": {
+                "size": "5",
+                "count": "8",
+                "tier": "tier1"
+              },
+              "type": "object"
+            },
+            {
+              "key": "pi_redo_volume",
+              "display_name": "Redo Log Disks",
+              "required": false,
+              "custom_config": {
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "json_editor"
+              },
+              "default_value": {
+                "size": "2",
+                "count": "4",
+                "tier": "tier5k"
+              },
+              "type": "object"
+            },
+            {
+              "key": "ora_sid",
+              "display_name": "Oracle Database Name (SID)",
+              "default_value": "",
+              "type": "string",
+              "required": true,
+              "value_constraints": [
+                {
+                  "type": "regex",
+                  "value": "^[A-Za-z_]+[A-Za-z0-9_]+$",
+                  "description": "Oracle Database name (SID) should contain 3 characters"
+                },
+                {
+                  "type": "regex",
+                  "value": "^.{3,8}$",
+                  "description": "should not exceed 8 characters."
+                }
+              ]
+            },
+            {
+              "key": "ora_db_password",
+              "display_name": "Oracle SYS Password",
+              "description": "Password for Oracle database administrative users (SYS, SYSTEM). Password must be 8-30 characters long and contain at least one uppercase letter, one lowercase letter, one digit, and one special character.",
+              "default_value": "",
+              "type": "password",
+              "required": true,
+              "value_constraints": [
+                {
+                  "type": "regex",
+                  "value": "^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).+$",
+                  "description": "Password must contain at least one uppercase letter, one lowercase letter, one digit, and one special character"
+                },
+                {
+                  "type": "regex",
+                  "value": "^.{8,30}$",
+                  "description": "Password must be between 8 and 30 characters"
+                }
+              ],
+              "custom_config": {}
+            },
+            {
+              "key": "redolog_size_in_mb",
+              "display_name": "Redo log member size (MB)",
+              "type": "string",
+              "required": false,
+              "default_value": "1024"
+            },
+            {
+              "key": "ibmcloud_cos_service_credentials",
+              "type": "multiline_secure_value",
+              "display_name": "Cloud Object Storage Credentials",
+              "required": true,
+              "description": "IBM Cloud Object Storage service credentials in JSON format",
+              "custom_config": {
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "multiline_secure_value"
+              },
+              "default_value": "{\"apikey\":\"your-cos-apikey\",\"endpoints\":\"https://control.cloud-object-storage.cloud.ibm.com/v2/endpoints\",\"resource_instance_id\":\"crn:v1:bluemix:public:cloud-object-storage:global:a/your-account-id:your-instance-id::\"}"
+            },
+            {
+              "key": "ibmcloud_cos_configuration",
+              "display_name": "COS Oracle Software Configuration",
+              "required": true,
+              "custom_config": {
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "json_editor"
+              },
+              "default_value": {
+                "cos_region": "us-south",
+                "cos_bucket_name": "oracle-rac-sw-bucket",
+                "cos_oracle_database_sw_path": "V982583-01_193000_db.zip",
+                "cos_oracle_grid_sw_path": "V982588-01_193000_grid.zip",
+                "cos_oracle_ru_file_path": "p37641958_190000_AIX64-5L.zip",
+                "cos_oracle_opatch_file_path": "p6880880_190000_AIX64-5L.zip",
+                "cos_oracle_cluvfy_file_path": "cvupack_aix_7_ppc64.zip"
+              },
+              "type": "object"
+            },
+            {
+              "key": "nfs_server_config",
+              "display_name": "NFS Server Configuration",
+              "required": false,
+              "custom_config": {
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "json_editor"
+              },
+              "default_value": {
+                "size": 200,
+                "iops": 600,
+                "mount_path": "/nfs"
+              },
+              "type": "object"
+            },
+            {
+              "key": "client_to_site_vpn",
+              "display_name": "Client-to-Site VPN Configuration",
+              "required": false,
+              "custom_config": {
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "json_editor"
+              },
+              "default_value": {
+                "enable": false,
+                "client_ip_pool": "192.168.0.0/16",
+                "vpn_client_access_group_users": []
+              },
+              "type": "object"
+            },
+            {
+              "key": "vpc_subnet_cidrs",
+              "display_name": "VPC Subnet CIDRs",
+              "type": "object",
+              "description": "CIDR values for the VPC subnets to be created. It is customer responsibility that none of the defined networks collide, including the PowerVS subnets and VPN client pool. Refer to [Power Virtual Server Landing Zone](https://cloud.ibm.com/docs/powervs-vpc?topic=powervs-vpc-landing-zone-preset).",
+              "required": false,
+              "custom_config": {
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "json_editor"
+              },
+              "default_value": {
+                "vpn": "10.10.10.0/24",
+                "mgmt": "10.20.10.0/24",
+                "vpe": "10.30.10.0/24",
+                "edge": "10.40.10.0/24"
+              }
+            },
+            {
+              "key": "vpc_intel_images",
+              "display_name": "VPC Intel VSI OS Images",
+              "type": "object",
+              "description": "Stock OS image names for creating VPC landing zone VSI instances: RHEL (management and network services) and SLES (monitoring). Refer to [Stock Images](https://cloud.ibm.com/infrastructure/compute/stockImages) for the list of available images.",
+              "required": false,
+              "custom_config": {
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "json_editor"
+              },
+              "default_value": {
+                "rhel_image": "ibm-redhat-9-4-amd64-sap-applications-5",
+                "sles_image": "ibm-sles-15-6-amd64-sap-applications-3"
+              }
+            },
+            {
+              "key": "sm_service_plan",
+              "display_name": "Secrets Manager Service Plan",
+              "type": "string",
+              "description": "Service plan for a new Secrets Manager instance. Only used when existing_sm_instance_guid is not set.",
+              "required": false,
+              "default_value": "standard",
+              "options": [
+                {
+                  "displayname": "Standard",
+                  "value": "standard"
+                },
+                {
+                  "displayname": "Trial",
+                  "value": "trial"
+                }
+              ]
+            },
+            {
+              "key": "existing_sm_instance_guid",
+              "display_name": "Existing Secrets Manager GUID",
+              "type": "string",
+              "description": "GUID of an existing Secrets Manager instance. Leave blank to provision a new one.",
+              "required": false,
+              "default_value": "__NULL__"
+            },
+            {
+              "key": "existing_sm_instance_region",
+              "display_name": "Existing Secrets Manager Region",
+              "type": "string",
+              "description": "Region of the existing Secrets Manager instance. Required only when existing_sm_instance_guid is provided.",
+              "required": false,
+              "default_value": "__NULL__"
+            },
+            {
+              "key": "root_password",
+              "display_name": "RAC Nodes Root User Password",
+              "description": "Root user password for all Oracle RAC AIX virtual server instances. Password must be 15-30 characters long and contain at least one uppercase letter, one lowercase letter, one digit, and one special character.",
+              "type": "password",
+              "default_value": "",
+              "required": true,
+              "value_constraints": [
+                {
+                  "type": "regex",
+                  "value": "^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).+$",
+                  "description": "Password must contain at least one uppercase letter, one lowercase letter, one digit, and one special character"
+                },
+                {
+                  "type": "regex",
+                  "value": "^.{15,30}$",
+                  "description": "Password must be between 15 and 30 characters"
+                }
+              ],
+              "custom_config": {}
+            }
+          ],
+          "iam_permissions": [
+            {
+              "service_name": "schematics",
+              "role_crns": [
+                "crn:v1:bluemix:public:iam::::role:Editor",
+                "crn:v1:bluemix:public:iam::::role:Manager"
+              ]
+            },
+            {
+              "service_name": "power-iaas",
+              "role_crns": [
+                "crn:v1:bluemix:public:iam::::serviceRole:Manager"
+              ]
+            },
+            {
+              "service_name": "is.vpc",
+              "role_crns": [
+                "crn:v1:bluemix:public:iam::::serviceRole:Manager",
+                "crn:v1:bluemix:public:iam::::role:Administrator"
+              ]
+            },
+            {
+              "service_name": "transit.gateway",
+              "role_crns": [
+                "crn:v1:bluemix:public:iam::::role:Editor"
+              ]
+            },
+            {
+              "service_name": "cloud-object-storage",
+              "role_crns": [
+                "crn:v1:bluemix:public:iam::::serviceRole:Manager",
+                "crn:v1:bluemix:public:iam::::role:Writer"
+              ]
+            },
+            {
+              "service_name": "resource-group",
+              "role_crns": [
+                "crn:v1:bluemix:public:iam::::role:Viewer",
+                "crn:v1:bluemix:public:iam::::role:Editor"
+              ]
+            }
+          ],
+          "architecture": {
+            "features": [
+              {
+                "title": "Fully Automated RAC Deployment",
+                "description": "Complete Oracle RAC cluster with Grid Infrastructure and shared storage"
+              },
+              {
+                "title": "High Availability Architecture",
+                "description": "Multi-node cluster with anti-affinity placement and SCAN load balancing"
+              },
+              {
+                "title": "Production-Ready Infrastructure",
+                "description": "VPC landing zone with network services and four-network RAC topology"
+              }
+            ],
+            "diagrams": [
+              {
+                "diagram": {
+                  "caption": "Oracle RAC Ready-to-Go on Power Virtual Server with VPC Landing Zone",
+                  "url": "https://raw.githubusercontent.com/terraform-ibm-modules/terraform-ibm-powervs-oracle/main/images/Oracle_DA_RAC_ReadyToGo.svg",
+                  "type": "image/svg+xml"
+                },
+                "description": "This fully automated deployable architecture provisions Oracle Real Application Clusters (RAC) on IBM Power Virtual Server with complete VPC landing zone integration. It creates VPC infrastructure, PowerVS workspace, network services, and deploys a multi-node Oracle RAC cluster with Grid Infrastructure and shared ASM storage, all automated via Ansible."
+              }
+            ]
+          },
+          "terraform_version": "1.10.5",
+          "schematics_env_values": {
+            "value": "[{\"name\": \"API_DATA_IS_SENSITIVE\",\"value\": \"true\",\"secure\": false,\"hidden\": true}]"
+          }
         }
       ]
     }
