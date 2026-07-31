@@ -27,7 +27,7 @@ This fully automated deployable architecture creates a complete Oracle Database 
 
 ## Reference Architecture
 
-<img width="450" alt="image" src="https://github.com/nava-dba/terraform-ibm-oracle-powervs-da/blob/main/images/Oracle_DA_SI_FA.svg" />
+<img width="450" alt="image" src="https://github.com/terraform-ibm-modules/terraform-ibm-powervs-oracle/blob/main/images/Oracle_DA_SI_FA.svg" />
 
 This solution deploys:
 
