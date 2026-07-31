@@ -8,9 +8,9 @@ This module deploys an **Oracle 19c Database** as a Single Instance (SI) or Real
 
 | Variation - Readme | Description | Availability |
 |-----------|-------------|--------------|
-| [**Single Instance Database**](https://github.com/nava-dba/terraform-ibm-oracle-powervs-da/blob/shiva-dev/solutions/oracle/si/README.md) | Oracle 19c SI on AIX VSI, manual steps are required | Public & Private |
-| [**RAC Database**](https://github.com/nava-dba/terraform-ibm-oracle-powervs-da/blob/shiva-dev/solutions/oracle/rac/README.md) | Oracle 19c RAC on AIX VSI, manual steps are required | Public & Private |
-| [**Oracle SI-One Click**](https://github.com/nava-dba/terraform-ibm-oracle-powervs-da/blob/shiva-dev/solutions/oracle/si-ready-to-go/README.md) | Fully automated Oracle SI deployment via PowerVS VPC landing zone | Public only |
+| [**Single Instance Database**](https://github.com/terraform-ibm-modules/terraform-ibm-powervs-oracle/blob/main/solutions/oracle/si/README.md) | Oracle 19c SI on AIX VSI, manual steps are required | Public & Private |
+| [**RAC Database**](https://github.com/terraform-ibm-modules/terraform-ibm-powervs-oracle/blob/main/solutions/oracle/rac/README.md) | Oracle 19c RAC on AIX VSI, manual steps are required | Public & Private |
+| [**Oracle SI-One Click**](https://github.com/terraform-ibm-modules/terraform-ibm-powervs-oracle/blob/main/solutions/oracle/si-ready-to-go/README.md) | Fully automated Oracle SI deployment via PowerVS VPC landing zone | Public only |
 
 ## Tested Environments
 
