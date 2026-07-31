@@ -1,26 +1,11 @@
-variable "deployment_type" {
-  description = "Deployment type for the architecture. Accepted values: 'public' or 'private'."
-  type        = string
-  validation {
-    condition     = contains(["public", "private"], var.deployment_type)
-    error_message = "deployment_type must be either 'public' or 'private'"
-  }
-}
+########################################################
+# IBM Cloud Authentication
+########################################################
 
 variable "ibmcloud_api_key" {
   description = "IBM Cloud API key used to authenticate and provision resources. To generate an API key, see [Creating your IBM Cloud API key](https://www.ibm.com/docs/en/masv-and-l/cd?topic=cli-creating-your-cloud-api-key)."
   type        = string
   sensitive   = true
-}
-
-variable "region" {
-  description = "IBM Cloud region where resources will be deployed (e.g., us-south, eu-de). See all available regions at [IBM Cloud locations](https://cloud.ibm.com/docs/overview?topic=overview-locations)."
-  type        = string
-}
-
-variable "zone" {
-  description = "IBM Cloud data center zone within the region where IBM PowerVS infrastructure will be created (e.g., dal14, eu-de-1). See all available zones at [IBM PowerVS locations](https://www.ibm.com/docs/en/power-virtual-server?topic=locations-cloud-regions)."
-  type        = string
 }
 
 #####################################################
@@ -36,13 +21,8 @@ variable "prefix" {
   }
 }
 
-variable "pi_existing_workspace_guid" {
-  description = "GUID of an existing IBM Power Virtual Server Workspace. To find the GUID: IBM Cloud Console > Resource List > Compute > click the workspace > copy the GUID from the CRN (the segment between the 7th and 8th colon). To create a new workspace, see [Creating an IBM Power Virtual Server](https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-creating-power-virtual-server)."
-  type        = string
-}
-
-variable "pi_ssh_public_key_name" {
-  description = "Name of the existing SSH public key already uploaded to the PowerVS Workspace. To add an SSH key to the workspace, see [Managing IBM PowerVS SSH keys](https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-creating-ssh-key)."
+variable "ssh_public_key" {
+  description = "Public SSH Key for VSI creation. Must be an RSA key with a key size of either 2048 bits or 4096 bits (recommended). Must be a valid SSH key that does not already exist in the deployment region."
   type        = string
 }
 
@@ -50,16 +30,6 @@ variable "ssh_private_key" {
   description = "RSA private SSH key corresponding to the public key referenced by 'pi_ssh_public_key_name'. Used to connect to IBM PowerVS instances during provisioning. The key is stored temporarily and deleted after use. To generate a key pair on the bastion host, run: ssh-keygen -t rsa, then copy the output of: cat ~/.ssh/id_rsa. For more information, see [SSH keys](https://cloud.ibm.com/docs/vpc?topic=vpc-ssh-keys)."
   type        = string
   sensitive   = true
-}
-
-variable "pi_rhel_management_server_type" {
-  description = "Server (machine) type for the RHEL management (Ansible controller) instance (e.g., s1022, e980). To list available server types, run: ibmcloud pi server-types."
-  type        = string
-}
-
-variable "pi_rhel_image_name" {
-  description = "Name of the IBM PowerVS RHEL boot image used for the Ansible controller instance. Must be a valid RHEL image available in the workspace. To list available images, run: ibmcloud pi images. For more information, see [Full Linux Subscription](https://www.ibm.com/docs/en/power-virtual-server?topic=linux-full-subscription-power-virtual-server-private-cloud)."
-  type        = string
 }
 
 variable "pi_aix_image_name" {
@@ -86,10 +56,9 @@ variable "pi_aix_instance" {
   validation {
     condition = (
       var.pi_aix_instance.cores == null ? true :
-      var.deployment_type == "public" ? var.pi_aix_instance.cores >= 0.25 :
-      var.pi_aix_instance.cores >= 0.2
+      var.pi_aix_instance.cores >= 0.25
     )
-    error_message = "AIX RAC instance cores must be at least 0.25 for public deployment or 0.2 for private deployment. Current: ${coalesce(var.pi_aix_instance.cores, "not specified")} for ${var.deployment_type}"
+    error_message = "AIX RAC instance cores must be at least 0.25. Current: ${coalesce(var.pi_aix_instance.cores, "not specified")}"
   }
 }
 
@@ -101,23 +70,6 @@ variable "pi_replication_policy" {
   validation {
     condition     = contains(["anti-affinity", "affinity", "none"], var.pi_replication_policy)
     error_message = "pi_replication_policy must be one of: anti-affinity, affinity, or none."
-  }
-}
-
-###########################################################
-# Network Configuration
-###########################################################
-
-variable "pi_networks" {
-  description = "List of exactly 4 existing private subnet objects to attach to each Oracle RAC node, provided in this required order: index 0 = Management/Control network, index 1 = Public network (client connections), index 2 = Private interconnect 1 (RAC heartbeat), index 3 = Private interconnect 2 (RAC heartbeat). Each object requires 'name' and 'id'. To list available subnets, run: ibmcloud pi networks. To create subnets, see [Configuring a subnet](https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-configuring-subnet)."
-  type = list(object({
-    name = string
-    id   = string
-  }))
-
-  validation {
-    condition     = length(var.pi_networks) >= 4
-    error_message = "At least 4 networks are required: management, public, private1, and private2."
   }
 }
 
@@ -197,16 +149,6 @@ variable "pi_user_tags" {
 # Parameters Oracle Installation and Configuration
 #####################################################
 
-variable "bastion_host_ip" {
-  description = "Public IP address of the bastion/jump host used to reach the Ansible controller (RHEL instance) in the private network. The bastion host must have the SSH private key at ~/.ssh/id_rsa. To set up a VPN gateway as the bastion host, contact IBM Support. For more information, see [IBM PowerVS Private Cloud Network Architecture](https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-private-cloud-architecture#network-spec-private-cloud)."
-  type        = string
-}
-
-variable "squid_server_ip" {
-  description = "Private IP address of the Squid proxy server that provides internet access from within the private PowerVS network. Required for downloading packages and patches during installation. To configure a Squid proxy server, see [Creating a proxy server](https://cloud.ibm.com/docs/power-iaas?topic=power-iaas-full-linux-sub#create-proxy-private)."
-  type        = string
-}
-
 variable "ora_sid" {
   description = "Oracle Database System Identifier (SID). A unique name for the Oracle RAC database instance (e.g., ORCL). For RAC, this is also used as the database unique name prefix across all nodes. Maximum 8 characters, alphanumeric, must start with a letter. For more information, see [Oracle Database Concepts](https://docs.oracle.com/en/database/oracle/oracle-database/19/cncpt/introduction-to-oracle-database.html)."
   type        = string
@@ -239,26 +181,112 @@ variable "root_password" {
   sensitive   = true
 }
 
-variable "time_zone" {
-  description = "Time zone to configure on all Oracle RAC AIX virtual server instances (e.g., UTC, America/New_York, America/Los_Angeles). All RAC nodes must use the same time zone."
-  type        = string
-  default     = "America/Los_Angeles"
-}
-# ===========================
-# Database Configuration
-# ===========================
+#####################################################
+# Ready-to-Go Specific Parameters
+#####################################################
 
-variable "ru_version" {
-  description = "Oracle Release Update (RU) patch version to apply to both Grid Infrastructure and the Database (e.g., 19.20.0.0). This must match the RU patch zip uploaded to the COS bucket at 'cos_oracle_ru_file_path'. Find available RU patches on [Oracle MOS (note 2521164.1)](https://support.oracle.com/epmos/faces/DocumentDisplay?id=2521164.1)."
+variable "powervs_zone" {
+  description = "IBM Cloud data center location where IBM PowerVS infrastructure will be created."
   type        = string
 }
 
-variable "cluster_domain" {
-  description = "DNS domain name for the Oracle RAC cluster (e.g., example.com). Used to construct fully qualified hostnames for cluster nodes and the SCAN name. This domain must be resolvable within your network."
+variable "powervs_resource_group_name" {
+  description = "Existing IBM Cloud resource group name."
   type        = string
 }
 
-variable "cluster_name" {
-  description = "Name for the Oracle RAC cluster (e.g., orac-cluster). Used internally by Oracle Clusterware to identify the cluster. Must be unique within the domain and contain only alphanumeric characters and hyphens. For more information, see [Oracle Clusterware Administration](https://docs.oracle.com/en/database/oracle/oracle-database/19/cwadd/oracle-clusterware-administration.html)."
+variable "powervs_management_network_cidr" {
+  description = "Network CIDR for PowerVS management network (e.g., '10.51.0.0/24')."
   type        = string
+  default     = "10.51.0.0/24"
+}
+
+variable "external_access_ip" {
+  description = "Specify the IP address or CIDR to login through SSH to the environment after deployment. Access to this environment will be allowed only from this IP address."
+  type        = string
+}
+
+variable "nfs_server_config" {
+  description = "Configuration for the NFS server. 'size' is in GB, 'iops' is maximum input/output operation performance bandwidth per second, 'mount_path' defines the target mount point on os. Set 'configure_nfs_server' to false to ignore creating file storage share."
+  type = object({
+    size       = number
+    iops       = number
+    mount_path = string
+  })
+
+  default = {
+    "size" : 200,
+    "iops" : 600,
+    "mount_path" : "/nfs"
+  }
+}
+
+variable "vpc_intel_images" {
+  description = "Stock OS image names for creating VPC landing zone VSI instances: RHEL (management and network services) and SLES (monitoring)."
+  type = object({
+    rhel_image = string
+    sles_image = string
+  })
+  default = {
+    "rhel_image" : "ibm-redhat-9-4-amd64-sap-applications-5"
+    "sles_image" : "ibm-sles-15-6-amd64-sap-applications-3"
+  }
+}
+
+#####################################################
+# Optional Parameters VPN and Secrets Manager
+#####################################################
+
+variable "client_to_site_vpn" {
+  description = "VPN configuration - the client ip pool and list of users email ids to access the environment. If enabled, then a Secret Manager instance is also provisioned with certificates generated. See optional parameters to reuse an existing Secrets manager instance."
+  type = object({
+    enable                        = bool
+    client_ip_pool                = string
+    vpn_client_access_group_users = list(string)
+  })
+
+  default = {
+    "enable" : false,
+    "client_ip_pool" : "192.168.0.0/16",
+    "vpn_client_access_group_users" : []
+  }
+}
+
+variable "sm_service_plan" {
+  type        = string
+  description = "The service/pricing plan to use when provisioning a new Secrets Manager instance. Allowed values: `standard` and `trial`. Only used if `existing_sm_instance_guid` is set to null."
+  default     = "standard"
+}
+
+variable "existing_sm_instance_guid" {
+  type        = string
+  description = "An existing Secrets Manager GUID. If not provided a new instance will be provisioned."
+  default     = null
+}
+
+variable "existing_sm_instance_region" {
+  type        = string
+  description = "Required if value is passed into `var.existing_sm_instance_guid`."
+  default     = null
+
+}
+
+#####################################################
+# Optional Parameters VPC subnets
+#####################################################
+
+variable "vpc_subnet_cidrs" {
+  description = "CIDR values for the VPC subnets to be created. It's customer responsibility that none of the defined networks collide, including the PowerVS subnets and VPN client pool."
+  type = object({
+    vpn  = string
+    mgmt = string
+    vpe  = string
+    edge = string
+  })
+  default = {
+    "vpn"  = "10.10.10.0/24"
+    "mgmt" = "10.20.10.0/24"
+    "vpe"  = "10.30.10.0/24"
+    "edge" = "10.40.10.0/24"
+  }
 }
