@@ -19,7 +19,7 @@
 
 module "landing_zone" {
   source  = "terraform-ibm-modules/powervs-infrastructure/ibm//modules/powervs-vpc-landing-zone"
-  version = "11.1.5"
+  version = "11.2.1"
 
   providers = {
     ibm.ibm-is = ibm.ibm-is
