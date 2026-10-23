@@ -102,7 +102,7 @@ resource "terraform_data" "reconfigure_ansible_host" {
 
 module "pi_instance_aix" {
   source     = "terraform-ibm-modules/powervs-instance/ibm"
-  version    = "2.8.9"
+  version    = "2.9.0"
   providers  = { ibm = ibm.ibm-pi }
   depends_on = [module.standard]
 
